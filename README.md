@@ -4,6 +4,7 @@
 
 > A card-based memo / widget app that **lives on the desktop, stays always on top, and can be collapsed into a sidebar.**
 > Windows 10 / 11 x64 · .NET 8 + WPF · **zero third-party dependencies** (builds offline)
+>This project is assisted by DeepSeek V4.1 Flash.
 
 ## 1. Introduction
 
