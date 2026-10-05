@@ -1,0 +1,12 @@
+{
+  "id": "sticky_note",
+  "name": "便利贴",
+  "version": "1.0.0",
+  "entry": "StickyNoteCard.dll",
+  "icon": "icon.png",
+  "description": "随手记录，可标记完成并换色",
+  "allowedSizes": ["1x1", "2x1", "2x2"],
+  "defaultSize": "1x1",
+  "maxInstances": 12,
+  "minAppVersion": "1.0.0"
+}

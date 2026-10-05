@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    内置卡片（插件）。只引用契约程序集；宿主程序集绝不会被卡片引用。
+    产物由 build.ps1 暂存到 <仓库根>/Cards/clock/（见 build.ps1 的 staging 段）。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <AssemblyName>ClockCard</AssemblyName>
+    <RootNamespace>DsDock.Cards.Clock</RootNamespace>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\DsDock.Card.Abstractions\DsDock.Card.Abstractions.csproj">
+      <!-- 契约程序集由宿主提供：绝不能复制进 Cards/<id>/，否则插件里的 ICardFactory
+           与宿主里的会成为两个不同类型，加载时抛 InvalidCastException。 -->
+      <Private>false</Private>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </ProjectReference>
+  </ItemGroup>
+
+</Project>

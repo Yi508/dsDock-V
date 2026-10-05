@@ -1,0 +1,44 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>   <!-- 仅为"导入新卡片"的文件夹选择框（共享框架，无额外依赖） -->
+  </PropertyGroup>
+
+  <!-- WinForms 会把 System.Windows.Forms / System.Drawing 加进隐式 using，导致 WPF 的 Color / MouseEventArgs 歧义；这里移除 -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <Nothing />
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <AssemblyName>DsDock</AssemblyName>
+    <RootNamespace>DsDock</RootNamespace>
+    <StartupObject>DsDock.Program</StartupObject>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 托盘图标运行时从嵌入资源读取，不产生散落文件 -->
+    <Resource Include="Assets\tray.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DsDock.Card.Abstractions\DsDock.Card.Abstractions.csproj" />
+  </ItemGroup>
+
+  <!-- tray.ico 必须真的存在于 exe 旁边：托盘图标要用 LoadImage(LR_LOADFROMFILE) 从文件加载
+       （Resource 项只嵌入程序集，不会复制到输出目录） -->
+  <Target Name="CopyTrayIcon" AfterTargets="Build">
+    <Copy SourceFiles="Assets\tray.ico" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

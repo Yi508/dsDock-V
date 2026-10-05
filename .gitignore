@@ -1,0 +1,23 @@
+# 构建产物
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+
+# 卡片构建产物 + 运行时插件目录（由 build.ps1 从 src/Cards/* 暂存生成）
+Cards/*
+!Cards/.gitkeep
+
+# build.ps1 把 dotnet CLI home 与包缓存重定向到仓库内
+.dotnet-home/
+.nuget-packages/
+
+# 自检与截图产物（可重新生成）；里程碑报告 docs/M*.md 仍入版本管理
+docs/*-reports/
+
+# 应用运行时数据（正常在 bin 下，这里兜底）
+/data/
+
+*.user
+*.suo
+.vs/

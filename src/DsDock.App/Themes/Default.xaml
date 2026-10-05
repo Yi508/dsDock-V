@@ -1,0 +1,28 @@
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+
+  <!--
+    静态设计 token。强调色/透明度/磨砂/字号这些"用户可调"的值不写在这里，
+    由 Appearance/Theme.cs 运行时注入（改设置不需要重建 XAML）。
+  -->
+
+  <sys:Double x:Key="SidebarHoverMs">150</sys:Double>
+  <sys:Double x:Key="MenuFadeMs">100</sys:Double>
+  <sys:Double x:Key="SlideMs">200</sys:Double>
+  <sys:Double x:Key="CardResizeMs">200</sys:Double>
+
+  <CornerRadius x:Key="PanelCorner">6</CornerRadius>
+  <CornerRadius x:Key="CardCorner">8</CornerRadius>
+  <CornerRadius x:Key="MenuCorner">10</CornerRadius>
+  <CornerRadius x:Key="SidebarCorner">4</CornerRadius>
+
+  <Color x:Key="PanelTintColor">#121824</Color>
+  <Color x:Key="SidebarColor">#000000</Color>
+
+  <SolidColorBrush x:Key="BorderSoftBrush" Color="#59FFFFFF" />
+  <SolidColorBrush x:Key="DividerBrush" Color="#26FFFFFF" />
+  <SolidColorBrush x:Key="TextPrimaryBrush" Color="#E6FFFFFF" />
+  <SolidColorBrush x:Key="TextSecondaryBrush" Color="#99FFFFFF" />
+
+</ResourceDictionary>

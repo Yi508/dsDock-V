@@ -1,0 +1,12 @@
+{
+  "id": "clock",
+  "name": "时钟",
+  "version": "1.0.0",
+  "entry": "ClockCard.dll",
+  "icon": "icon.png",
+  "description": "显示当前时间与日期",
+  "allowedSizes": ["1x1", "2x1"],
+  "defaultSize": "1x1",
+  "maxInstances": 1,
+  "minAppVersion": "1.0.0"
+}
