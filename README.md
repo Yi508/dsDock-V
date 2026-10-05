@@ -1,234 +1,199 @@
-﻿# dsDock 桌面备忘录 — 项目 README
+# dsDock Desktop Memo
 
-> 一个**常驻桌面、完全置顶、可收纳为侧边栏**的卡片式备忘录 / 小组件应用。
-> Windows 10 / 11 x64 · .NET 8 + WPF · **零第三方依赖**（离线可构建）
+**English** | [简体中文](README-zh.md)
 
-- 仓库位置：`D:\dshwk001\dsDock0.1`
-- 交付物：`dist\dsDock-Setup.exe`（单文件安装包，约 0.57 MB）
-- 相关文档：
-  - 原始需求：`D:\dshwk001\xiangxi\dsDock .txt`
-  - 卡片开发规范（写新卡片必读）：`D:\dshwk001\xiangxi\卡片开发规范.md`
-  - 安装说明：`dist\install-readme.txt`
+> A card-based memo / widget app that **lives on the desktop, stays always on top, and can be collapsed into a sidebar.**
+> Windows 10 / 11 x64 · .NET 8 + WPF · **zero third-party dependencies** (builds offline)
 
----
+## 1. Introduction
 
-## 1. 它是什么
+It is not an ordinary window application — it is **a layer that sits on your desktop**:
 
-不是一个普通窗口程序，而是**贴在桌面上的一层**：
-
-- **侧边栏**：贴屏幕边缘的细条（默认 8px 宽、半透明），平时只占一条缝
-- **主界面**：点侧边栏（或托盘左键）后从侧边栏所在边**"长"出来**，放卡片
-- **完全置顶**：主界面与侧边栏都是 TOPMOST —— 按 **Win+D / 显示桌面** 不会把它们藏起来（这是核心需求之一）
-- **收纳**：再点侧边栏 / 主界面标题栏的 ⌄ → 收回侧边栏，只留一条缝
-- **卡片制**：时钟、便利贴是卡片；卡片是**插件**（独立 DLL），可按规范扩展
+- **Sidebar**: a thin strip hugging a screen edge (8 px wide, semi-transparent by default) — normally just a sliver of pixels
+- **Main panel**: click the sidebar (or left-click the tray icon) and it **grows out** of the sidebar's edge; this is where your cards live
+- **Always on top**: both the panel and the sidebar are TOPMOST — **Win+D / Show desktop** will not hide them (this is one of the core requirements)
+- **Collapse**: click the sidebar again, or the ⌄ button in the panel's title bar, to fold the panel back into the sidebar
+- **Card based**: the clock and the sticky note are cards; a card is a **plugin** (a standalone DLL) that can be extended by following the spec
 
 ---
 
-## 2. 快速开始
+## 2. Getting started
 
-### 2.1 用户：安装使用
+### 2.1 Users: install and run
 
-1. 双击 `dist\dsDock-Setup.exe`（单文件自解压包）→ 直接出现安装向导
-2. 选择安装位置（**默认 `D:\dsDock`**，不建议装 C 盘；见 §8 限制 1）
-3. 勾选：桌面快捷方式 / 开机自启 / 安装后立即启动
-4. 装完双击托盘图标或桌面快捷方式即可
+1. Double-click `dsDock-Setup.exe` (single-file self-extracting package) — the install wizard appears directly
+2. Choose the install location (**defaults to `D:\dsDock`**; installing to C: is not recommended — see §7, limitation 1)
+3. Tick the options: desktop shortcut / start with Windows / launch immediately after install
+4. When finished, double-click the tray icon or the desktop shortcut
 
-运行要求：Windows 10/11 x64 + **.NET 8 桌面运行时**（`Microsoft.WindowsDesktop.App`）。
+Requirements: Windows 10/11 x64 + **.NET 8 Desktop Runtime** (`Microsoft.WindowsDesktop.App`).
 
-### 2.2 开发者：构建 / 运行 / 验证
+### 2.2 Developers: build / run / verify
 
 ```powershell
-# 构建（应用 + 所有已注册卡片，并暂存到 <仓库根>\Cards\<id>\）
+# Build (app + all registered cards, staged into <repo root>\Cards\<id>\)
 powershell -ExecutionPolicy Bypass -File build.ps1
 
-# 构建 + 部署到工作区之外 + 启动（托盘可用，推荐）
+# Build + deploy outside the workspace + launch (tray icon works; recommended)
 tools\deploy.cmd
 
-# 全量自动化自检（60+ 条，数据隔离，不会动你的真实配置）
+# Full automated self-test (60+ checks, data-isolated, never touches your real config)
 tools\validate.cmd
 
-# 重新打包安装程序（应用 → 载荷 → 安装程序 → 单文件 SFX，输出到 dist\）
+# Rebuild the installer (app -> payload -> setup -> single-file SFX, output in dist\)
 powershell -ExecutionPolicy Bypass -File tools\make-installer.ps1
 ```
 
-> ℹ️ 本仓库**不提供 .sln**：卡片是插件，必须由脚本统一构建并暂存到 `Cards\<id>\`（sln 管不了这一步），所以请用上面的脚本，或直接构建 `src\DsDock.App\DsDock.App.csproj`。
+> ℹ️ This repository deliberately **ships no .sln**: cards are plugins and must be built and staged into `Cards\<id>\` by the scripts (a solution file cannot do that step), so use the scripts above, or build `src\DsDock.App\DsDock.App.csproj` directly.
 
 ---
 
-## 3. 目录结构
+## 3. Layout
 
-### 3.1 仓库
+### 3.1 Repository
 
 ```
 dsDock0.1\
-├─ build.ps1 / build.cmd        构建 + 卡片暂存
-├─ run.cmd                      构建 + 部署到工作区外 + 启动
-├─ registry.json                已注册卡片 id 列表
-├─ Cards\                       卡片暂存输出（gitignore，按 manifest.id 建目录）
-├─ docs\install-readme.txt      安装说明（打包时进 dist\）
-├─ dist\                        交付物（安装包）
+├─ build.ps1 / build.cmd        build + stage cards
+├─ run.cmd                      build + deploy outside the workspace + launch
+├─ registry.json                list of registered card ids
+├─ Cards\                       staged card output (gitignored; one folder per manifest.id)
+├─ docs\install-readme.txt      install notes (copied into dist\ when packaging)
+├─ dist\                        deliverables (installer)
 ├─ tools\
-│   ├─ deploy.ps1 / .cmd        部署到工作区外（默认 D:\dsDock）
-│   ├─ validate.ps1 / .cmd      自检入口
-│   └─ make-installer.ps1       打包：应用 → 载荷 → 安装程序 → 单文件 exe
+│   ├─ deploy.ps1 / .cmd        deploy outside the workspace (default D:\dsDock)
+│   ├─ validate.ps1 / .cmd      self-test entry point
+│   └─ make-installer.ps1       packaging: app -> payload -> setup -> single-file exe
 └─ src\
-    ├─ DsDock.Card.Abstractions\  卡片契约（宿主与所有卡片共用）
-    ├─ DsDock.App\                宿主：窗口 / 托盘 / 卡片运行时 / 存储 / 设置界面 / 自检
-    │   ├─ Shell\                 单实例、消息窗口、托盘图标、全屏检测、开机自启
-    │   ├─ Windows\               主界面、侧边栏、弹窗、卡片库、设置界面、窗口动画器
-    │   ├─ Plugins\               注册表读取、隔离加载（影子拷贝）、卡片运行时、安装/移除
-    │   ├─ Storage\               settings / layout / 备份 / 导入导出
-    │   ├─ Controls\              自绘控件（滑杆、开关、悬停高亮、菜单）
-    │   ├─ Anim\                  60 FPS 帧时钟
-    │   ├─ Platform\              窗口工具、现代文件夹选择器
-    │   └─ Diagnostics\           命令行参数、自检 M1/M2、日志
-    ├─ Cards\Clock\               时钟卡片（源码）
-    ├─ Cards\StickyNote\          便利贴卡片（源码，含提醒）
-    └─ DsDock.Setup\              安装程序（WinForms 向导 + 内嵌载荷）
+    ├─ DsDock.Card.Abstractions\  card contract (shared by the host and every card)
+    ├─ DsDock.App\                host: windows / tray / card runtime / storage / settings UI / self-test
+    │   ├─ Shell\                 single instance, message window, tray icon, fullscreen watcher, autostart
+    │   ├─ Windows\               main panel, sidebar, popups, card library, settings window, window animator
+    │   ├─ Plugins\               registry reading, isolated loading (shadow copy), card runtime, install/remove
+    │   ├─ Storage\               settings / layout / backups / import & export
+    │   ├─ Controls\              self-drawn controls (slider, switch, hover highlight, menus)
+    │   ├─ Anim\                  60 FPS frame clock
+    │   ├─ Platform\              window helpers, modern folder picker
+    │   └─ Diagnostics\           command-line options, self-test M1/M2, logging
+    ├─ Cards\Clock\               clock card (source)
+    ├─ Cards\StickyNote\          sticky note card (source, includes reminders)
+    └─ DsDock.Setup\              installer (WinForms wizard + embedded payload)
 ```
 
-### 3.2 安装后的运行时布局
+### 3.2 Runtime layout after installation
 
 ```
-<安装目录>\
+<install dir>\
 ├─ DsDock.exe / DsDock.dll / DsDock.runtimeconfig.json
 ├─ tray.ico / Assets\
 ├─ registry.json                {"cards":["clock","sticky_note", ...]}
 ├─ Cards\<id>\                  manifest.json + <entry>.dll + icon.png
-├─ data\                        ← 用户数据（升级/重装不覆盖）
-│   ├─ settings.json            外观与行为设置
-│   ├─ layout.json              容器布局（挡位 + 每张卡片的位置尺寸）
-│   ├─ cards\<instanceId>.json  每张卡片自己的状态
-│   ├─ backup_1..3.json         备份轮转
-│   └─ export\                  导出默认目录
-└─ Uninstall.cmd                卸载脚本
+├─ data\                        <- user data (never overwritten by upgrades/reinstalls)
+│   ├─ settings.json            appearance and behaviour settings
+│   ├─ layout.json              container layout (row count + each card's position and size)
+│   ├─ cards\<instanceId>.json  per-card state
+│   ├─ backup_1..3.json         rotating backups
+│   └─ export\                  default export folder
+└─ Uninstall.cmd                uninstall script
 ```
 
-> 程序目录不可写时，数据自动回退到 `%APPDATA%\桌面备忘录\`。
+> If the program folder is not writable, data automatically falls back to `%APPDATA%\桌面备忘录\` (Desktop Memo).
 
 ---
 
-## 4. 功能总览
+## 4. Feature overview
 
-### 4.1 窗口与交互
+### 4.1 Windows and interaction
 
-| 功能 | 说明 |
+| Feature | Details |
 |---|---|
-| 完全置顶 | 主界面/侧边栏均 TOPMOST，**Win+D 免疫**；不进任务栏（TOOLWINDOW） |
-| 收纳 / 展开 | 200ms 缓动，从侧边栏所在边"生长/收回"；动画只改窗口矩形，**卡片不重排** |
-| 点击侧边栏 | **展开 ⇄ 收纳**切换（与托盘菜单共用同一入口） |
-| 拖动侧边栏 | **1:1 跟手**（基于按下瞬间的窗口位置 + 光标总位移，不累加）；松手**自动吸附最近的屏幕边缘** |
-| 侧边栏长度 | 跟随主界面长度，**下限为屏幕对应方向的 10%** |
-| 悬停高亮 | 侧边栏加亮（不透明度 +0.6 并边框变强调色，150ms）；按钮悬停统一走 `DsHover` |
-| 主题 | 不透明度（实时生效）/ 圆角 / 字号 / 强调色 / 尺寸挡位；均写入 `settings.json` |
-| 帧率 | 统一 60 FPS 帧时钟（`Anim\FrameClock`） |
-| 弹出界面 | 设置 / 卡片库 / 卡片编辑 / 提示窗**在鼠标附近弹出**，贴边时自动上翻并夹回工作区 |
-| 全屏让位 | 检测到前台全屏应用/游戏时，主界面**滑出到最近的左右边框**（200ms）并隐藏；退出全屏**滑回原位** |
-| 显示变化 | `WM_DISPLAYCHANGE` / `WM_DPICHANGED` → 重新贴合工作区并重排 |
+| Always on top | Both the panel and the sidebar are TOPMOST, **immune to Win+D**; no taskbar button (TOOLWINDOW) |
+| Collapse / expand | 200 ms easing, "grows out of" / retracts into the sidebar's edge; the animation only changes the window rectangle, so **cards are never re-laid out** |
+| Clicking the sidebar | Toggles **expand ⇄ collapse** (shares a single entry point with the tray menu) |
+| Dragging the sidebar | **1:1 tracking** (based on the window position captured on mouse-down plus the total cursor delta — never accumulated); on release it **snaps to the nearest screen edge** |
+| Sidebar length | Follows the panel's length, with a **lower bound of 10 % of the screen dimension** |
+| Hover highlight | The sidebar brightens (opacity +0.6 and the border turns into the accent colour, 150 ms); button hover is unified through `DsHover` |
+| Theme | Opacity (applied live) / corner radius / font size / accent colour / row count; all persisted to `settings.json` |
+| Frame rate | One shared 60 FPS frame clock (`Anim\FrameClock`) |
+| Pop-up windows | Settings / card library / card editor / prompts open **near the mouse cursor**, flip upwards near the screen edge and are clamped into the work area |
+| Fullscreen yielding | When a fullscreen app or game takes the foreground, the panel **slides out to the nearest left/right edge** (200 ms) and hides; leaving fullscreen **slides it back to its previous position** |
+| Display changes | `WM_DISPLAYCHANGE` / `WM_DPICHANGED` → re-fit into the work area and re-lay out |
 
-### 4.2 卡片
+### 4.2 Cards
 
-| 卡片 | 尺寸 | 说明 |
+| Card | Sizes | Details |
 |---|---|---|
-| **时钟** | 1×1 / 2×1 | 12/24 小时**跟随系统区域设置**，日期同理；秒数可开关（右键菜单，状态持久化） |
-| **便利贴** | 1×1 / 2×1 / 2×2 | 与时钟同款卡片样式（不铺底色、边框跟随颜色）；左上完成圆点；左下「编辑」；6 个高饱和预设色；编辑弹窗**回车保存** / Shift+回车换行；100 字上限；**提醒**（到点走 Windows 系统通知） |
+| **Clock** | 1×1 / 2×1 | 12/24-hour format **follows the system locale**, date too; seconds can be toggled (context menu, state persisted) |
+| **Sticky note** | 1×1 / 2×1 / 2×2 | Same card style as the clock (no filled background, border follows the chosen colour); completion dot in the top-left; 「编辑」(Edit) button bottom-left; 6 highly saturated preset colours; the editor saves with **Enter** and inserts a newline with Shift+Enter; 100-character limit; **reminders** (fire a Windows system notification when due) |
 
-- **卡片库**（▦）：4 列 × 3 行分页，显示名称 / 介绍 / 容器内数量；「添加」在上限前一直可用，达上限变「已达上限 N」；有删除按钮
-- **导入新卡片…**：选文件夹 → 校验清单 → 拷到 `Cards\<id>\` → 写 `registry.json` → **热加载，无需重启**（支持"解压后多套一层目录"；自动跳过禁止携带的 `DsDock.Card.Abstractions.dll` 等）
-- **移除卡片…**：弹出已装卡片列表，每行「移除」→ 容器内该卡片实例一并移除 + 删目录 + 注销注册表 + 卸运行时账目，**实时同步，无需重启**
-- **失败隔离**：坏卡片只跳过它（卡片库显示灰色占位 + 原因，并弹一次系统通知），其它卡片照常
+- **Card library** (▦): 4 columns × 3 rows per page, showing name / description / instance count in the container; the Add button stays available until the limit, then reads「已达上限 N」; each tile also has a remove button
+- **Import new card…**: pick a folder → validate the manifest → copy into `Cards\<id>\` → write `registry.json` → **hot-load, no restart** (tolerates an extra top-level folder after unzipping; automatically skips forbidden files such as `DsDock.Card.Abstractions.dll`)
+- **Remove card…**: opens a list of installed cards; the Remove button on a row removes all instances of that card from the container, deletes its folder, unregisters it from `registry.json` and unloads it from the runtime — **synchronised live, no restart**
+- **Failure isolation**: a broken card is simply skipped (the library shows a grey placeholder with the reason and a system notification pops once); every other card keeps working
 
-### 4.3 托盘
+### 4.3 Tray
 
-- **左键**：展开 ⇄ 收纳主界面（`NIN_SELECT` / `WM_LBUTTONUP` 两种协议都识别）
-- **右键**：自绘菜单 —— 显示/隐藏主界面、设置、卡片库、开机自启（开关）、退出应用
-- 资源管理器重启后自动重新注册（`TaskbarCreated`）
-- 卡片加载失败 / 便利贴提醒 → 通过托盘气泡发**系统通知**
+- **Left click**: expand ⇄ collapse the main panel (both `NIN_SELECT` and `WM_LBUTTONUP` protocols are recognised)
+- **Right click**: self-drawn menu — show/hide the panel, Settings, Card library, Start with Windows (toggle), Exit
+- Automatically re-registers after Explorer restarts (`TaskbarCreated`)
+- Card load failures / sticky-note reminders are delivered as **system notifications** through the tray balloon
 
-### 4.4 数据
+### 4.4 Data
 
-- 原子写（临时文件 + `File.Replace`，失败回退覆盖）
-- **备份轮转** `backup_1..3.json`（整包快照：设置 + 布局 + 卡片状态）
-- 损坏容错：解析失败报告原因并尝试从备份回退，不崩溃
-- **导出/导入**：用户自选路径 + 格式校验 + 过滤（`*.dsdock.json`），拒绝坏文件并给出原因，导入前自动备份；**开机自启状态也随包迁移**
-- **重置所有数据**：二次确认 → 备份 → 清空 → 自动重启（新进程带 `--restart-wait` 等旧实例让出单实例锁）
+- Atomic writes (temp file + `File.Replace`, falling back to overwrite)
+- **Rotating backups** `backup_1..3.json` (whole-package snapshot: settings + layout + card states)
+- Corruption tolerance: parse failures are reported and a fallback to the backups is attempted — the app never crashes
+- **Export / import**: user-chosen paths, format validation and filtering (`*.dsdock.json`); bad files are rejected with a reason and a backup is taken before importing; **the start-with-Windows state travels with the package too**
+- **Reset all data**: confirmation → backup → wipe → automatic restart (the new process passes `--restart-wait` so it waits for the old instance to release the single-instance mutex)
 
 ---
 
-## 5. 命令行参数
+## 5. Command-line options
 
-| 参数 | 说明 |
+| Option | Description |
 |---|---|
-| `--selftest <json路径>` | 跑全量自检并把报告写到指定文件（自检期间设置/布局/卡片状态都用 `.selftest` 隔离文件，**不动真实数据**） |
-| `--hold-ms N` | 自检后保持 N 毫秒再退出（便于外部采样） |
-| `--force-data-root <目录>` | 强制数据目录（自检用） |
-| `--restart-wait` | 重启自身时使用：先等旧实例退出并让出单实例锁 |
-| `--edge Left\|Right\|Top\|Bottom` | 侧边栏停靠边 |
-| `--sidebar-width N` / `--sidebar-alpha N` | 侧边栏厚度 / 不透明度 |
-| `--alpha N` / `--corner N` / `--font N` / `--accent #RRGGBB` / `--rows N` | 外观覆盖 |
-| `--locked` / `--no-auto-expand` | 启动即锁定 / 启动不展开主界面 |
-| `--no-tray` | 不装托盘图标（调试） |
-| `--x N --y N` | 强制主界面位置 |
+| `--selftest <json path>` | Run the full self-test and write the report to the given file (during the self-test, settings/layout/card states use `.selftest`-suffixed isolated files, so **real data is never touched**) |
+| `--hold-ms N` | Keep the process alive for N ms after the self-test (for external sampling) |
+| `--force-data-root <dir>` | Force the data directory (used by the self-test) |
+| `--restart-wait` | Used when restarting itself: wait for the old instance to exit and release the single-instance mutex |
+| `--edge Left\|Right\|Top\|Bottom` | Sidebar dock edge |
+| `--sidebar-width N` / `--sidebar-alpha N` | Sidebar thickness / opacity |
+| `--alpha N` / `--corner N` / `--font N` / `--accent #RRGGBB` / `--rows N` | Appearance overrides |
+| `--locked` / `--no-auto-expand` | Start locked / do not expand the panel on startup |
+| `--no-tray` | Do not install the tray icon (debugging) |
+| `--x N --y N` | Force the main panel position |
 
 ---
 
-## 6. 关键设计决策（为什么这么做）
+## 6. Testing
 
-1. **完全置顶，放弃"挂到桌面层"**：原方案用 `SetParent` 把窗口挂到 `WorkerW`（桌面层）以免疫 Win+D，但受限进程下 `SetParent` 会 `ACCESS_DENIED`，且与 TOPMOST 语义冲突。最终选择"始终 TOPMOST"（`WS_EX_TOPMOST|LAYERED|TOOLWINDOW`），Win+D 免疫且实现简单可靠。
-2. **动画只动窗口矩形**：展开/收纳/滑出都通过 `SetWindowPos` 逐帧改变窗口几何，内容固定尺寸被裁切 —— 因此动画期间**卡片不会重排**（有自检断言保障）。
-3. **卡片隔离加载 + 影子拷贝**：每个卡片一个可回收 `AssemblyLoadContext`；契约程序集（`DsDock.Card.Abstractions`）**解析回宿主那一份**（否则 `InvalidCastException`）；加载时把卡片目录**影子拷贝到临时目录再加载**，于是 `Cards\<id>\` 下的原始 DLL 从不被映射 —— 移除卡片、覆盖导入同一张卡片都不会再遇到"文件被占用"。
-4. **WPF 与 Win32 显隐状态一致**：`SetVisible` 同时 `Hide()/Show()` 与 `ShowWindow`，避免 `IsVisible` 与实际窗口状态不一致（这曾导致"收纳后唤不出"和"失活自关"等一串问题）。
-5. **失活不自关的保护**：设置窗口与卡片库"点击外部关闭"，但弹系统对话框会让它们失活 —— 用 `_dialogOpen` 抑制，否则窗口会在导入过程中自关并导致崩溃。
-6. **现代文件夹选择器**：用 `IFileOpenDialog + FOS_PICKFOLDERS`（与"打开文件"同款外观，挂在宿主窗口上，天然在最前）。
-7. **单实例**：`Local\DsDock.SingleInstance.v01` 互斥体；第二次启动广播激活消息叫出已有窗口；重启自身用 `--restart-wait` 避免"新实例撞锁自杀"。
-8. **无边框全自绘 UI**：所有控件（滑杆、开关、菜单、按钮、卡片壳）自绘，风格统一；透明用 WPF 逐像素 alpha（不用 DWM 磨砂，因为它会遮掉 WPF 透明度——这是实测结论）。
+- Self-test entry point: `tools\validate.cmd` (or `DsDock.exe --selftest <path>`); **60+ assertions** covering: window styles / animation geometry / the card system / isolated loading / failure isolation / clock and sticky-note behaviour / reminders / data persistence and backups / export-import and format validation / card import and removal / tray event parsing / fullscreen yielding and snapping / DPI maths / hover and controls
+- Reports: the self-test JSON (structure plus per-case detail) and the log `data\logs\app-*.log`
+- **The whole self-test is data-isolated** (`.selftest`-suffixed files) and never touches your real configuration
+- Manual confirmation checklist (interactions the self-test cannot cover): tray left/right click, fullscreen yielding and return, changing the system scale on a real machine, restarting Explorer, double-clicking the single-file installer
 
 ---
 
-## 7. 测试
+## 7. Known limitations and caveats
 
-- 自检入口：`tools\validate.cmd`（或 `DsDock.exe --selftest <路径>`），**60+ 条断言**覆盖：窗口样式/动画几何/卡片体系/隔离加载/失败隔离/时钟与便利贴行为/提醒/数据落盘与备份/导入导出与格式校验/导入与移除卡片/托盘事件解析/全屏让位与吸附/DPI 换算/悬停与控件等
-- 报告：自检 JSON（结构与用例明细）+ 日志 `data\logs\app-*.log`
-- **自检全程数据隔离**（`.selftest` 后缀文件），不触碰真实配置
-- 人工确认清单（自检无法覆盖的交互）：托盘左/右键、全屏视频下让位与回位、真机改系统缩放、资源管理器重启、单文件安装包双击安装
-
----
-
-## 8. 已知限制与注意事项
-
-1. **托盘需要"非受限"运行环境**：从 `D:\dshwk001\...` 这类受限目录启动的进程可能被降为低完整性，`Shell_NotifyIcon` 会被系统以 UIPI 拒绝（`err=5`）→ **安装/部署到 `D:\dsDock` 等普通目录**即可（安装包默认如此）。
-2. **Windows 11 托盘图标默认藏在 `^` 溢出区**：把图标从溢出区拖到任务栏即可常显（这是系统按 exe 路径记的偏好，程序无法代劳）。
-3. 需要 **.NET 8 桌面运行时**（框架依赖打包，安装包不含运行时）。
-4. 单文件安装包由 Windows 自带 `iexpress` 生成：**外壳图标是系统默认样式**、**未签名**（SmartScreen 可能提示一次）、**不支持传参**（静默安装请用 `dist\DsDockSetup\DsDockSetup.exe --silent --dir ...`，该文件夹由打包脚本生成）。
-5. **覆盖更新同名卡片**时，该卡片在容器里的实例会被移除（实例属于旧程序集，无法安全替换），需要从卡片库重新添加；数据文件已一并清理，是干净的新实例。
-6. 全屏让位依赖前台窗口判定：个别启动器/无边框全屏程序可能识别不到（可反馈具体程序再调整判定）。
-7. 自检中有 **1 条时序敏感用例**（动画期间采样卡片尺寸）偶尔取不到样本而报红，属采样时机问题而非功能回归，正在加"重试采样"容错。
+1. **The tray icon needs a non-restricted environment**: a process started from a restricted directory such as `D:\dshwk001\...` can be dropped to low integrity, and `Shell_NotifyIcon` is then rejected by the system through UIPI (`err=5`) → **install/deploy into an ordinary directory such as `D:\dsDock`** (which is what the installer defaults to).
+2. **On Windows 11 the tray icon hides in the `^` overflow area by default**: drag it from the overflow area onto the taskbar to keep it visible (this preference is recorded by Windows per exe path; the program cannot do it for you).
+3. The **.NET 8 Desktop Runtime** is required (the package is framework-dependent and does not include the runtime).
+4. The single-file installer is produced by the built-in Windows `iexpress`: **its wrapper icon is the system default**, it is **unsigned** (SmartScreen may prompt once) and it **does not accept arguments** (for silent installs use `dist\DsDockSetup\DsDockSetup.exe --silent --dir ...`; that folder is produced by the packaging script).
+5. **Overwriting an existing card with an updated version** removes that card's instances from the container (the instances belong to the old assembly and cannot be swapped safely), so they must be added again from the card library; the data files are cleaned up as well, so you get clean new instances.
+6. Fullscreen yielding relies on foreground-window detection: a few launchers or borderless fullscreen applications may not be recognised (report the specific program and the detection can be adjusted).
+7. One **timing-sensitive self-test case** (sampling card sizes during an animation) occasionally fails to capture a sample and shows red; that is a sampling-timing artefact rather than a functional regression, and retry-based tolerance is being added.
 
 ---
 
-## 9. 排错速查
+## 8. Troubleshooting
 
-| 症状 | 可能原因 | 处理 |
+| Symptom | Likely cause | What to do |
 |---|---|---|
-| 托盘没有图标 | 从受限目录启动（低完整性被拒）/ Win11 溢出区 | 装到 `D:\dsDock` 类目录；从 `^` 溢出区拖出 |
-| 托盘左/右键没反应 | 事件协议解析（v4 事件在 `lParam` 低字） | 看日志 `托盘回调: …` 那几行；该问题已修 |
-| 导入卡片报 `being used by another process` | 旧版本会把卡片 DLL 直接映射 | 已改为影子拷贝加载，更新到最新版即可 |
-| 卡片库出现灰色占位 + 原因 | 清单非法 / DLL 损坏 / `factory.Id` 与注册 id 不一致 | 按提示修正卡片包（详见《卡片开发规范》§4、附录 A） |
-| 点导入/移除后窗口自己关了或崩溃 | 弹对话框导致失活自关 | 已加 `_dialogOpen` 保护；若仍出现，把日志最后 20 行发我 |
-| 数据异常 | `layout.json` / 卡片状态损坏 | 程序会报告并尝试从 `backup_1..3.json` 回退；也可用设置里的"导入数据"手工恢复 |
-| 收纳后唤不出 / 界面"少一半" | 动画被别的动画取消（历史问题） | 已用按所有者的序列号修掉；如复现请附日志 |
-
----
-
-## 10. 待办 / 路线图
-
-- [ ] 自检：给动画采样用例加重试容错（消除偶发红）
-- [ ] 卡片库：渲染卡片 `icon.png`（目前只显示文字）
-- [ ] 卡片库：搜索框；"从文件夹安装"已在做，可再加"更新同名卡片时自动恢复实例格位"
-- [ ] 多显示器拔插 / 真机 DPI 缩放的完整走查
-- [ ] 更多卡片（待办清单、番茄钟/计时器、快捷启动等；规范见《卡片开发规范》）
-- [ ] 可选：自包含单文件（需 `ILLink.Tasks`，当前环境离线不可得）
-
----
-
-*本 README 与代码同步维护；改动功能时请一并更新 §4 功能表、§5 参数表与 §8 限制清单。*
+| No tray icon | Started from a restricted directory (low integrity rejected) / Windows 11 overflow area | Install into a directory such as `D:\dsDock`; drag the icon out of the `^` overflow area |
+| Tray left/right click does nothing | Event-protocol parsing (in v4 the event is in the low word of `lParam`) | Check the `托盘回调: …` lines in the log; this issue is fixed |
+| Importing a card reports `being used by another process` | Older builds mapped the card DLL directly | Loading now uses a shadow copy — update to the latest build |
+| The card library shows a grey placeholder plus a reason | Invalid manifest / corrupted DLL / `factory.Id` does not match the registered id | Fix the card package as suggested (see the card development spec, §4 and Appendix A) |
+| The window closes itself or crashes after clicking Import/Remove | A dialog taking focus caused the self-closing behaviour | A `_dialogOpen` guard was added; if it still happens, send us the last 20 lines of the log |
+| Data looks wrong | `layout.json` or a card state file is corrupted | The app reports it and tries to fall back to `backup_1..3.json`; you can also restore manually with "Import data" in Settings |
+| Cannot bring the panel back after collapsing / only half of it appears | An animation was cancelled by another animation (a historical issue) | Fixed with per-owner sequence numbers; if it reproduces, attach the log |
