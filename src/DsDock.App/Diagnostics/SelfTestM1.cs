@@ -22,7 +22,7 @@ internal sealed class M1Check
 
 internal sealed class M1Report
 {
-    public string Tool { get; set; } = "dsDock 0.1 M1 自检（侧边栏 / 主界面形态）";
+    public string Tool { get; set; } = $"dsDock {AppVersion.Display} M1 自检（侧边栏 / 主界面形态）";
     public string StartedAt { get; set; } = "";
     public string Options { get; set; } = "";
     public string Integrity { get; set; } = "";
@@ -131,6 +131,13 @@ internal static class SelfTestM1
         // 3) 展开动画：从侧边栏矩形长到主界面，200ms，且动画期间卡片不重排
         sidebar.SnapTo(options.Edge, 0.5, animate: false);
         await Task.Delay(150);
+        // 隔离数据根可能是空布局（*.selftest 被清理后首次运行即如此）：
+        // 容器没卡片时"动画期间尺寸采样"必然为空 → 先放一张，保证有卡可测
+        if (panel.CardCount == 0)
+        {
+            panel.AddCard("clock");
+            await Task.Delay(350);
+        }
         var sidebarRect = sidebar.PanelRect();
         var cardBefore = panel.FirstCardSizeDip();
         var canvasBefore = panel.CanvasWidthDip;
@@ -240,7 +247,7 @@ internal static class SelfTestM1
 
         var text = new List<string>
         {
-            $"dsDock 0.1 M1 自检报告  {report.StartedAt}",
+            $"dsDock {AppVersion.Display} M1 自检报告  {report.StartedAt}",
             $"参数: {report.Options}",
             $"总体: {(report.AllPassed ? "全部通过" : "存在失败项")}",
             "",

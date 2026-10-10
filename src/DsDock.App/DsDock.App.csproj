@@ -19,6 +19,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>12</LangVersion>
     <AssemblyName>DsDock</AssemblyName>
+    <!-- 版本唯一定义处：Version 生成程序集/文件版本，InformationalVersion 是显示用（1.08） -->
+    <Version>1.0.8</Version>
+    <InformationalVersion>1.08</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <RootNamespace>DsDock</RootNamespace>
     <StartupObject>DsDock.Program</StartupObject>
     <ApplicationManifest>app.manifest</ApplicationManifest>

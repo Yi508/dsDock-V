@@ -30,6 +30,7 @@ internal sealed class AppShell
     private PanelWindow? _panel;
     private SettingsWindow? _settingsWindow;
     private LibraryWindow? _libraryWindow;
+    private OutsideClickWatcher? _outsideClicks;
     private DsMenu? _menu;
     private FullscreenWatcher? _fullscreen;
     private bool _panelWasExpanded;
@@ -141,6 +142,13 @@ internal sealed class AppShell
 
         _panel.DisplayChanged += () => Dispatch(OnDisplayChanged);
         _panel.DpiChanged += () => Dispatch(() => { _sidebar?.ApplyGeometry(false); SyncSidebarLength(); });
+        // 自动收纳两条触发路径：① 鼠标钩子 —— 点本应用之外（无需先聚焦，覆盖"从侧边栏展开后从未获得焦点"的场景）
+        //                       ② WM_ACTIVATEAPP —— 键盘等方式离开（Alt+Tab 等无鼠标点击的情形）
+        _panel.AppDeactivated += () => Dispatch(() => TryAutoCollapse("本应用失焦"));
+        _outsideClicks = new OutsideClickWatcher();
+        _outsideClicks.OutsideClickDetected += (x, y) => Dispatch(() => TryAutoCollapse("点击了本应用之外", x, y));   // 用点击坐标判定，不依赖真实光标
+        _outsideClicks.Start();
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => _outsideClicks?.Dispose();
         _fullscreen = new FullscreenWatcher(TimeSpan.FromMilliseconds(500),
             () => new[] { _panel.Handle, _sidebar.Handle, _settingsWindow?.Handle ?? IntPtr.Zero })
         {
@@ -199,6 +207,37 @@ internal sealed class AppShell
         Log.Info($"已退出全屏并恢复（主界面展开={_panelWasExpanded}，滑回动画）");
     }
 
+    /// <summary>自动收纳的统一入口（触发源：外部点击 / 本应用失焦）。读 _settings 现场值，改完即时生效。</summary>
+    private void TryAutoCollapse(string reason, int? atX = null, int? atY = null)
+    {
+        if (!_settings.CollapseOnOutsideClick) return;
+        if (_panel?.IsExpanded != true) return;
+        if (_fullscreen is { IsHidden: true }) return;   // 全屏让位期间不插手
+
+        // 无论哪条路径触发（外部点击 / 失焦）：光标仍停在本应用窗口上 = 点的是"自己" → 忽略。
+        // 也覆盖"面板点击不激活导致失焦"的误触发，以及透明像素穿透的判定盲区
+        int px, py;
+        if (atX is int x && atY is int y) { px = x; py = y; }
+        else { NativeMethods.GetCursorPos(out var cursor); px = cursor.X; py = cursor.Y; }
+
+        if (OutsideClickWatcher.IsPointInOurWindows(px, py))
+        {
+            Log.Info($"{reason}：位置 ({px},{py}) 仍在本应用窗口上（点的是自己）→ 忽略");
+            return;
+        }
+
+        Log.Info($"{reason} → 按设置自动收纳为侧边栏");
+        CollapsePanel(true);
+    }
+
+    /// <summary>设置里的"点击外部自动收纳"开关：即时生效，无需重启。</summary>
+    private void ApplyCollapseOutsideSetting(bool enabled)
+    {
+        _settings.CollapseOnOutsideClick = enabled;
+        _settings.Save();
+        Log.Info($"点击外部自动收纳已{(enabled ? "开启" : "关闭")}（即时生效）");
+    }
+
     /// <summary>显示器拔插 / 分辨率或 DPI 变化：把窗口夹回可见工作区并重算侧边栏长度。</summary>
     private void OnDisplayChanged()
     {
@@ -231,6 +270,13 @@ internal sealed class AppShell
     public void OpenSettingsForTest() => OpenSettings();
     public SettingsWindow? SettingsWindowForTest => _settingsWindow;
     public FullscreenWatcher? FullscreenWatcherForTest => _fullscreen;
+    public OutsideClickWatcher? OutsideClickWatcherForTest => _outsideClicks;
+
+    /// <summary>自检用：带注入坐标地走失焦收纳判定（生产路径取真实光标）。</summary>
+    public void TryAutoCollapseAtForTest(string reason, int x, int y) => TryAutoCollapse(reason, x, y);
+
+    /// <summary>自检用：与设置窗口开关完全相同的回调（更新 _settings 现场值 + 落盘）。</summary>
+    public void SetCollapseOutsideForTest(bool enabled) => ApplyCollapseOutsideSetting(enabled);
     public void SetHiddenForFullscreenForTest(bool hidden) => SetHiddenForFullscreen(hidden);
 
     // ---------------------------------------------------------------- 主界面 展开/收回
@@ -341,7 +387,7 @@ internal sealed class AppShell
             return;
         }
 
-        var window = new SettingsWindow(_panel!, ApplyFullscreenHideSetting);
+        var window = new SettingsWindow(_panel!, ApplyFullscreenHideSetting, ApplyCollapseOutsideSetting);
 
         // 按要求：弹出界面出现在鼠标附近（拖动后的位置仍会记在 settings.json 里备用）
         (int cursorX, int cursorY) = CursorAnchor();

@@ -22,10 +22,10 @@ internal static class LayoutEngine
     public static int Cells(int columns, int rows) => columns * rows;
 
     /// <summary>True when the footprint is inside the grid and does not overlap anything else.</summary>
-    public static bool CanPlace(IReadOnlyList<Placement> all, int col, int row, int columns, int rows, int gridRows, string? exceptId = null)
+    public static bool CanPlace(IReadOnlyList<Placement> all, int col, int row, int columns, int rows, int gridRows, string? exceptId = null, int gridColumns = Columns)
     {
         if (col < 0 || row < 0) return false;
-        if (col + columns > Columns || row + rows > gridRows) return false;
+        if (col + columns > gridColumns || row + rows > gridRows) return false;
 
         foreach (Placement p in all)
         {
@@ -38,13 +38,13 @@ internal static class LayoutEngine
     }
 
     /// <summary>First free cell that fits the footprint (row-major), or null.</summary>
-    public static (int Col, int Row)? FindSlot(IReadOnlyList<Placement> all, int columns, int rows, int gridRows, string? exceptId = null)
+    public static (int Col, int Row)? FindSlot(IReadOnlyList<Placement> all, int columns, int rows, int gridRows, string? exceptId = null, int gridColumns = Columns)
     {
         for (int row = 0; row < gridRows; row++)
         {
-            for (int col = 0; col < Columns; col++)
+            for (int col = 0; col < gridColumns; col++)
             {
-                if (CanPlace(all, col, row, columns, rows, gridRows, exceptId)) return (col, row);
+                if (CanPlace(all, col, row, columns, rows, gridRows, exceptId, gridColumns)) return (col, row);
             }
         }
         return null;
@@ -67,11 +67,11 @@ internal static class LayoutEngine
     /// Rows needed to add one more card (spec: 一次调整到能容纳新卡片的最小挡位，不重排已有卡片).
     /// Returns null when even 2×6 cannot hold it.
     /// </summary>
-    public static int? RowsNeededToAdd(IReadOnlyList<Placement> all, int columns, int rows, int maxRows = MaxRows)
+    public static int? RowsNeededToAdd(IReadOnlyList<Placement> all, int columns, int rows, int maxRows = MaxRows, int gridColumns = Columns)
     {
         for (int gridRows = RequiredRows(all); gridRows <= maxRows; gridRows++)
         {
-            if (FindSlot(all, columns, rows, gridRows) != null) return gridRows;
+            if (FindSlot(all, columns, rows, gridRows, gridColumns: gridColumns) != null) return gridRows;
         }
         return null;
     }

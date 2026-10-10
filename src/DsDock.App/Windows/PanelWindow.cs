@@ -8,6 +8,8 @@ using System.Windows.Media;
 using System.Runtime.InteropServices;
 using System.Windows.Shapes;
 using DsDock.Anim;
+using DsDock.Card.Abstractions;
+using DsDock.Plugins;
 using DsDock.Appearance;
 using DsDock.Controls;
 using DsDock.Diagnostics;
@@ -29,6 +31,9 @@ internal sealed partial class PanelWindow : Window
     public const double Pad = 12;
     public const int Columns = 2;
 
+    /// <summary>框外右侧"外挂槽"宽度：窗口宽 = 内容宽 + 槽，箭头切换按钮放槽内（恒在圆角框右边框之外）。</summary>
+    public const double GutterDip = 28;
+
     private readonly Options _options;
     private readonly SettingsStore _settings;
     private readonly FrameClock _clock;
@@ -44,6 +49,8 @@ internal sealed partial class PanelWindow : Window
     private Grid? _topBar;
     private Canvas? _canvas;
     private TextBlock? _hud;
+    private Border? _columnsButton;
+    private StackPanel? _topButtons;
     private UIElement? _backdrop;
 
     private IntPtr _handle;
@@ -51,6 +58,7 @@ internal sealed partial class PanelWindow : Window
     private HwndSource? _source;
 
     private int _rows;
+    private int _columns;
     private bool _locked;
     private bool _expanded;
     private DockEdge _edge;
@@ -69,9 +77,10 @@ internal sealed partial class PanelWindow : Window
         _clock = clock;
         _animator = animator;
         _rows = settings.Rows;
+        _columns = settings.ContainerColumns is 4 ? 4 : 2;   // 只支持 2/4，其它值按 2 处理
         _locked = settings.Locked;
         _edge = settings.Edge;
-        _grid = new GridModel(Columns, LayoutEngine.MaxRows, CellSize, Gap, Pad, visibleRows: _rows);
+        _grid = new GridModel(_columns, LayoutEngine.MaxRows, CellSize, Gap, Pad, visibleRows: _rows);
 
         WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
@@ -108,6 +117,261 @@ internal sealed partial class PanelWindow : Window
     public bool IsExpanded => _expanded;
     public bool Locked => _locked;
     public int Rows => _rows;
+    public int ActiveColumns => _columns;
+
+    /// <summary>列数切换（2⇄4）时触发（右下角按钮/HUD 用）。</summary>
+    public event Action? ColumnsChanged;
+
+    /// <summary>本应用失去焦点（点击了本应用之外的地方，WM_ACTIVATEAPP=false）。</summary>
+    public event Action? AppDeactivated;
+
+    /// <summary>"待展开恢复"的卡片数（收回时排不下、只留布局记录的扩展列卡片）。</summary>
+    public int PendingCount
+    {
+        get
+        {
+            var hosted = _hosts.Select(h => h.InstanceId).ToHashSet();
+            return _placements.Count(p => !hosted.Contains(p.InstanceId));
+        }
+    }
+
+    private int? _shiftedLeft;   // D1：展开时为避让屏幕右缘整体左移的原左边缘
+
+    /// <summary>收回态下"本位在扩展列"卡片的本位（Q1=B：仅展开态的拖动会改它）。</summary>
+    private readonly Dictionary<string, (int Col, int Row)> _homePositions = new();
+
+    private double WidthForColumns(int columns) => columns * CellSize + (columns - 1) * Gap + 2 * Pad + GutterDip;
+
+    /// <summary>自检用：直接切换列数（不带动画）。</summary>
+    public void SetColumnsForTest(int columns) => SetColumns(columns, animate: false);
+
+    /// <summary>
+    /// 容器 2⇄4 列切换。几何与内容分先后，保证视觉是"裁切生长"而不是闪跳：
+    ///   展开：内容先变宽（新区域暂被窗口裁住）→ 窗口动画变宽 → 恢复"待恢复"卡片
+    ///   收回：窗口动画先收窄（扩展列被裁掉）→ 内容变窄 → 扩展列卡片按行序搬移
+    /// D1：左边缘固定向右生长；溢出工作区则整体左移，收回时移回原位。
+    /// </summary>
+    public void SetColumns(int target, bool animate)
+    {
+        if (target is not (2 or 4) || target == _columns) return;
+
+        bool widening = target > _columns;
+        bool visible = _handle != IntPtr.Zero && IsVisible;
+        NativeMethods.RECT from = PanelRect();
+        int durationMs = (int)Theme.TokenDuration("SlideMs", 200);
+
+        if (widening)
+        {
+            ApplyColumnState(target);
+            if (visible && animate)
+            {
+                AnimateColumnsWidth(from, target, true, durationMs, () => { RestoreHomeCards(); RestorePendingCards(); });
+            }
+            else
+            {
+                if (visible) AnimateColumnsWidth(from, target, false, durationMs, null);
+                RestoreHomeCards();
+                RestorePendingCards();
+            }
+        }
+        else
+        {
+            void Finish() { ApplyColumnState(target); RelocateExtCards(); }
+            if (visible && animate) AnimateColumnsWidth(from, target, true, durationMs, Finish);
+            else { if (visible) AnimateColumnsWidth(from, target, false, durationMs, null); Finish(); }
+        }
+
+        _settings.ContainerColumns = _columns;
+        _settings.Save();
+        SaveLayout();
+        Log.Info($"容器列数切换为 {_columns}：宽 {ContentWidthDip:F0} DIP，卡片 {_hosts.Count} 张，待恢复 {PendingCount} 张");
+        ColumnsChanged?.Invoke();
+        UpdateColumnsButton();
+    }
+
+    /// <summary>右下角按钮：2⇄4 列切换（锁定时按钮隐藏，这里再兜一层）。</summary>
+    private void ToggleColumns()
+    {
+        if (_locked) return;
+        int target = _columns == 2 ? 4 : 2;
+        SetColumns(target, animate: true);
+        Log.Info($"右下角列切换按钮 → {target} 列");
+    }
+
+    private void UpdateColumnsButton()
+    {
+        if (_columnsButton?.Child is not TextBlock label) return;
+        label.Text = _columns >= 4 ? "←" : "→";
+        _columnsButton.ToolTip = _columns >= 4 ? "收回两列（容器回到 2 列）" : "展开右侧两列（容器变 4 列）";
+        _columnsButton.Visibility = _locked ? Visibility.Collapsed : Visibility.Visible;   // D4：锁定时隐藏
+    }
+
+    /// <summary>自检用：顶栏**最右侧**按钮（▦）的屏幕矩形 —— 断言 UI 随列数平移到新右缘（量第一个按钮会多出后面按钮的宽度）。</summary>
+    public (int Left, int Top, int Right, int Bottom) TopButtonRectForTest()
+    {
+        if (_topButtons == null || _topButtons.Children.Count == 0 || _handle == IntPtr.Zero) return default;
+        if (_topButtons.Children[_topButtons.Children.Count - 1] is not FrameworkElement button) return default;
+        Point tl = button.PointToScreen(new Point(0, 0));
+        Point br = button.PointToScreen(new Point(button.ActualWidth, button.ActualHeight));
+        return ((int)tl.X, (int)tl.Y, (int)br.X, (int)br.Y);
+    }
+
+    /// <summary>自检用：模拟"本应用失焦"（真实来源是 WndProc 的 WM_ACTIVATEAPP）。</summary>
+    public void RaiseAppDeactivatedForTest() => AppDeactivated?.Invoke();
+
+    /// <summary>自检用：框外箭头按钮的屏幕矩形 —— 断言它在圆角框右边框之外的槽内。</summary>
+    public (int Left, int Top, int Right, int Bottom) ColumnsButtonRectForTest()
+    {
+        if (_columnsButton == null || _handle == IntPtr.Zero) return default;
+        Point tl = _columnsButton.PointToScreen(new Point(0, 0));
+        Point br = _columnsButton.PointToScreen(new Point(_columnsButton.ActualWidth, _columnsButton.ActualHeight));
+        return ((int)tl.X, (int)tl.Y, (int)br.X, (int)br.Y);
+    }
+
+    /// <summary>自检用：右下角切换按钮的文案与可见性。</summary>
+    public string ColumnsButtonTextForTest => _columnsButton?.Child is TextBlock tb ? tb.Text : "";
+
+    public bool ColumnsButtonVisibleForTest => _columnsButton != null && _columnsButton.Visibility == Visibility.Visible;
+
+    private void ApplyColumnState(int target)
+    {
+        _columns = target;
+        _grid.SetColumns(target);
+        ApplyContentSize();
+    }
+
+    private void AnimateColumnsWidth(NativeMethods.RECT from, int targetColumns, bool animate, int durationMs, Action? onDone)
+    {
+        var work = WorkArea();
+        int w = (int)Math.Round(WidthForColumns(targetColumns) * _dpiScale);
+        int left = from.Left;
+
+        if (targetColumns > 2)
+        {
+            if (left + w > work.Right)
+            {
+                int fitted = Math.Max(work.Left, work.Right - w);
+                _shiftedLeft ??= from.Left;      // 记住原位置，收回时平移回来
+                left = fitted;
+            }
+        }
+        else if (_shiftedLeft is int original && original >= work.Left && original + w <= work.Right)
+        {
+            left = original;
+            _shiftedLeft = null;
+        }
+
+        var to = new NativeMethods.RECT { Left = left, Top = from.Top, Right = left + w, Bottom = from.Bottom };
+        if (animate) _animator.Animate(_handle, from, to, durationMs, onDone);
+        else SetRect(to);
+    }
+
+    /// <summary>收回（4→2）：扩展列卡片按**行序**在 2 列找位；放不下的只留布局记录、摘实例。</summary>
+    private void RelocateExtCards()
+    {
+        var ext = _placements
+            .Where(p => p.Col + p.Columns > _columns)
+            .OrderBy(p => p.Row).ThenBy(p => p.Col)
+            .ToList();
+
+        int placed = 0, deferred = 0;
+        foreach (Placement p in ext)
+        {
+            CardHost? host = _hosts.FirstOrDefault(h => h.InstanceId == p.InstanceId);
+            if (host == null) continue;   // 已是"隐藏待恢复"：本位即记录，保持不动
+
+            var slot = LayoutEngine.FindSlot(_placements, p.Columns, p.Rows, _rows, p.InstanceId, _columns);
+            if (slot == null)
+            {
+                deferred++;
+                HideHostKeepingPlacement(p.InstanceId);
+                continue;
+            }
+
+            // 本位语义：layout 记录本位（扩展列），当前位置只是收回态的临时显示
+            _homePositions[p.InstanceId] = (p.Col, p.Row);
+            _placements[_placements.IndexOf(p)] = p with { Col = slot.Value.Col, Row = slot.Value.Row };
+            host.SetCell(slot.Value.Col, slot.Value.Row);
+            placed++;
+        }
+
+        if (ext.Count > 0)
+            Log.Info($"收回搬移：扩展列 {ext.Count} 张 → 挪入 {placed} 张、排不下保留位置 {deferred} 张");
+    }
+
+    /// <summary>摘掉宿主但**保留布局记录**（卡片对容器不可见，展开时按记录恢复）。</summary>
+    private void HideHostKeepingPlacement(string instanceId)
+    {
+        CardHost? host = _hosts.FirstOrDefault(h => h.InstanceId == instanceId);
+        if (host == null) return;
+        host.Card.OnDetached();
+        _hosts.Remove(host);
+        Runtime.Remove(host.InstanceId);
+        _canvas?.Children.Remove(host);
+    }
+
+    /// <summary>展开（2→4）：把"本位在扩展列"的卡片搬回本位（本位被占则 FindSlot 退化，落到 2 列即成新本位）。</summary>
+    private void RestoreHomeCards()
+    {
+        if (_homePositions.Count == 0) return;
+
+        int restored = 0;
+        foreach (KeyValuePair<string, (int Col, int Row)> pair in _homePositions.ToList())
+        {
+            CardHost? host = _hosts.FirstOrDefault(h => h.InstanceId == pair.Key);
+            Placement? p = _placements.FirstOrDefault(x => x.InstanceId == pair.Key);
+            if (host == null || p == null) { _homePositions.Remove(pair.Key); continue; }
+
+            (int Col, int Row) target = pair.Value;
+            if (!LayoutEngine.CanPlace(_placements, target.Col, target.Row, p.Columns, p.Rows, _rows, pair.Key, _columns))
+            {
+                var fallback = LayoutEngine.FindSlot(_placements, p.Columns, p.Rows, _rows, pair.Key, _columns);
+                if (fallback != null) target = fallback.Value;
+            }
+
+            _placements[_placements.IndexOf(p)] = p with { Col = target.Col, Row = target.Row };
+            host.SetCell(target.Col, target.Row);
+            _homePositions.Remove(pair.Key);
+            restored++;
+        }
+        if (restored > 0) Log.Info($"本位回迁: {restored} 张回到展开态本位");
+    }
+
+    /// <summary>展开（2→4）：把收回时没摆下的记录按原格恢复（原格被占则全网格找位）。</summary>
+    private void RestorePendingCards()
+    {
+        var hosted = _hosts.Select(h => h.InstanceId).ToHashSet();
+        var pending = _placements
+            .Where(p => !hosted.Contains(p.InstanceId))
+            .OrderBy(p => p.Row).ThenBy(p => p.Col)
+            .ToList();
+        if (pending.Count == 0) return;
+
+        int restored = 0, failed = 0;
+        foreach (Placement p in pending)
+        {
+            var slot = LayoutEngine.CanPlace(_placements, p.Col, p.Row, p.Columns, p.Rows, _rows, p.InstanceId, _columns)
+                ? (p.Col, p.Row)
+                : LayoutEngine.FindSlot(_placements, p.Columns, p.Rows, _rows, p.InstanceId, _columns);
+            if (slot == null) { failed++; continue; }
+
+            Placement updated = p with { Col = slot.Value.Col, Row = slot.Value.Row };
+            _placements[_placements.IndexOf(p)] = updated;
+
+            ICard? card = Runtime.Create(CardIdOf(p.InstanceId), p.InstanceId, new CardSize(p.Columns, p.Rows), out string error);
+            if (card == null)
+            {
+                // 卡片类型已卸载/加载失败 → 记录一并删除，避免孤儿
+                _placements.Remove(updated);
+                failed++;
+                Log.Info($"展开恢复失败，删除孤儿记录: {p.InstanceId} — {error}");
+                continue;
+            }
+            AddHost(updated, card);
+            restored++;
+        }
+        Log.Info($"展开恢复：待恢复 {pending.Count} 张 → 恢复 {restored} 张、失败 {failed} 张");
+    }
     public int CardCount => _cards.Count;
     public double DpiScale => _dpiScale;
     public long ExStyle => _handle == IntPtr.Zero ? 0 : WindowUtil.GetExStyle(_handle);
@@ -132,9 +396,9 @@ internal sealed partial class PanelWindow : Window
         ? WindowUtil.GetWorkAreaForRect(new NativeMethods.RECT { Left = 0, Top = 0, Right = 1920, Bottom = 1080 })
         : WindowUtil.GetWorkArea(_handle);
 
-    public double ContentWidthDip => Columns * CellSize + (Columns - 1) * Gap + 2 * Pad;
+    public double ContentWidthDip => _columns * CellSize + (_columns - 1) * Gap + 2 * Pad;
     public double ContentHeightDip(int rows) => rows * CellSize + Math.Max(0, rows - 1) * Gap + 2 * Pad;
-    public double WindowWidthDip => ContentWidthDip;
+    public double WindowWidthDip => ContentWidthDip + GutterDip;
     public double WindowHeightDip => TopBarHeight + ContentHeightDip(_rows);
 
     public NativeMethods.RECT SizeForRows(int rows)
@@ -181,9 +445,40 @@ internal sealed partial class PanelWindow : Window
         Grid.SetRow(_hud, 1);
         _content.Children.Add(_hud);
 
+        // 右下角：容器 2⇄4 列切换。锚定内容右缘 → 内容宽度变化时它跟着移到新的右下角
+        _columnsButton = new Border
+        {
+            Width = 20,
+            Height = 26,
+            CornerRadius = new CornerRadius(6),
+            Background = new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF)),
+            BorderThickness = new Thickness(1),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF)),
+            Cursor = Cursors.Hand,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(0, 0, 6, 8),
+            ToolTip = "展开右侧两列（容器变 4 列）",
+            Child = new TextBlock
+            {
+                FontSize = 16,
+                Foreground = new SolidColorBrush(Color.FromArgb(0xDD, 0xFF, 0xFF, 0xFF)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
+        DsHover.Enable(_columnsButton);
+        _columnsButton.MouseLeftButtonUp += (_, e) => { e.Handled = true; ToggleColumns(); };
+        UpdateColumnsButton();
+
         _layers.Children.Add(_content);
         _frame.Child = _layers;
-        Content = _frame;
+
+        // 窗口根：圆角框（内容宽，左锚）+ 框外右侧槽内的箭头按钮
+        var root = new Grid { Background = Brushes.Transparent };
+        root.Children.Add(_frame);
+        root.Children.Add(_columnsButton);
+        Content = root;
 
         ApplyContentSize();
     }
@@ -238,6 +533,7 @@ internal sealed partial class PanelWindow : Window
         AddButton("⚙", "设置", () => SettingsRequested?.Invoke());
         AddButton("⌄", "收纳为侧边栏", () => CollapseRequested?.Invoke());
         AddButton("▦", "卡片库", () => LibraryRequested?.Invoke());
+        _topButtons = buttons;
         bar.Children.Add(buttons);
 
         bar.MouseLeftButtonDown += OnTopBarDown;
@@ -255,16 +551,11 @@ internal sealed partial class PanelWindow : Window
 
         if (_frame != null)
         {
-            _frame.Width = w;
+            _frame.Width = ContentWidthDip;   // 框 = 内容宽（槽在框外）
             _frame.Height = h;
             _frame.CornerRadius = new CornerRadius(Theme.Corner);
-            // 内容锚定在贴边侧：动画只改窗口矩形，内容不重排
-            _frame.HorizontalAlignment = _edge switch
-            {
-                DockEdge.Right => HorizontalAlignment.Left,
-                DockEdge.Left => HorizontalAlignment.Right,
-                _ => HorizontalAlignment.Left,
-            };
+            // 统一左锚：动画只改窗口矩形、内容不重排；且保证槽恒在框的右侧
+            _frame.HorizontalAlignment = HorizontalAlignment.Left;
             _frame.VerticalAlignment = _edge switch
             {
                 DockEdge.Top => VerticalAlignment.Bottom,
@@ -274,7 +565,7 @@ internal sealed partial class PanelWindow : Window
         }
 
         if (_layers != null)
-            _layers.Clip = Theme.Corner > 0 ? new RectangleGeometry(new Rect(0, 0, w, h), Theme.Corner, Theme.Corner) : null;
+            _layers.Clip = Theme.Corner > 0 ? new RectangleGeometry(new Rect(0, 0, ContentWidthDip, h), Theme.Corner, Theme.Corner) : null;
 
         if (_canvas != null)
         {
@@ -331,6 +622,12 @@ internal sealed partial class PanelWindow : Window
             }
         }
 
+        // WM_ACTIVATEAPP(0x001C) wParam=0 → 本应用失焦：交宿主决定是否"点击外部自动收纳"
+        if (msg == 0x001C && wParam == IntPtr.Zero)
+        {
+            AppDeactivated?.Invoke();
+        }
+
         if (msg == 0x007E)   // WM_DISPLAYCHANGE
         {
             Log.Info("显示设置变化（WM_DISPLAYCHANGE）");
@@ -360,7 +657,7 @@ internal sealed partial class PanelWindow : Window
         UIElement backdrop;
         if (_options.Look == "snapshot")
         {
-            var made = BackdropFactory.Create(_handle, PanelRect(), WindowWidthDip, WindowHeightDip, _dpiScale,
+            var made = BackdropFactory.Create(_handle, PanelRect(), ContentWidthDip, WindowHeightDip, _dpiScale,
                 Theme.Frost, Theme.PanelTint, Theme.Alpha / 100.0, out string detail);
             backdrop = made ?? new Border
             {
@@ -734,6 +1031,7 @@ internal sealed partial class PanelWindow : Window
         _archive.AddRange(_placements);
         _cards.Clear();
         _placements.Clear();
+        _homePositions.Clear();
         ClearedCards?.Invoke();
     }
 
@@ -745,6 +1043,7 @@ internal sealed partial class PanelWindow : Window
         _locked = locked;
         _settings.Locked = locked;
         _settings.Save();
+        UpdateColumnsButton();   // D4：锁定 = 冻结布局，切换按钮一并隐藏
         Log.Info($"锁定主界面={locked}");
     }
 
@@ -866,7 +1165,7 @@ internal sealed partial class PanelWindow : Window
     {
         if (_hud == null || !_hudVisible || _clock.TickCount % 15 != 0) return;
         var rect = PanelRect();
-        _hud.Text = $"{(_expanded ? "展开" : "收起")} · 挡位 2×{_rows} · 卡片 {_hosts.Count} · 锁定 {(_locked ? "是" : "否")}\n" +
+        _hud.Text = $"{(_expanded ? "展开" : "收起")} · 挡位 {_columns}×{_rows} · 卡片 {_hosts.Count} · 锁定 {(_locked ? "是" : "否")}{(PendingCount > 0 ? $" · 待恢复 {PendingCount}" : "")}\n" +
                     $"FPS {_clock.MeasuredTickFps:F1} (渲染 {_clock.MeasuredRenderFps:F1})\n" +
                     $"{rect.Width}x{rect.Height}px · 字号 {Theme.FontSize:F0}";
     }

@@ -33,7 +33,7 @@ internal static class Program
             options.ForceDataRoot = Path.Combine(Path.GetTempPath(), "dsdock-selftest");
         DataRoot.Initialize(options.ForceDataRoot);
         Log.Initialize(DataRoot.LogsDir, $"app-{DateTime.Now:HHmmss}.log");
-        Log.Info("=== dsDock 0.1 启动 ===");
+        Log.Info($"=== dsDock {AppVersion.Display} 启动 ===");
         Log.Info("参数: " + options.Summary());
         Log.Info($"数据目录: {DataRoot.Root}（{DataRoot.Source}）— {DataRoot.ProbeDetail}");
         Log.Info($"进程完整性: {ProcessIntegrity.Describe()}；父进程: {ProcessIntegrity.DescribeParent()}");

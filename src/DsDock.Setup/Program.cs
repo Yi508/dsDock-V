@@ -104,7 +104,16 @@ internal static class Program
                 uninstall.SetValue("DisplayIcon", exe);
                 uninstall.SetValue("NoModify", 1, RegistryValueKind.DWord);
                 uninstall.SetValue("NoRepair", 1, RegistryValueKind.DWord);
-                uninstall.SetValue("DisplayVersion", "0.1");
+                // 版本从载荷里的 DsDock.exe 读（安装时才知道装的是哪一版）
+                string appVersion = "0.00";
+                try
+                {
+                    FileVersionInfo vi = FileVersionInfo.GetVersionInfo(exe);
+                    appVersion = (vi.ProductVersion ?? "").Split('+')[0].Trim();
+                    if (appVersion.Length == 0) appVersion = (vi.FileVersion ?? "0.00").Trim();
+                }
+                catch { /* 读不到就用默认值，不影响安装 */ }
+                uninstall.SetValue("DisplayVersion", appVersion);
                 log("已在“应用和功能”中登记卸载项");
             }
             catch (Exception ex)

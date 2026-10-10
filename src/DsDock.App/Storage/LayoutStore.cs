@@ -21,6 +21,7 @@ internal sealed class LayoutFile
 {
     public int Version { get; set; } = 1;
     public int PanelRows { get; set; } = 3;
+    public int Columns { get; set; } = 2;
     public List<CardInstanceRecord> Cards { get; set; } = new();
 }
 

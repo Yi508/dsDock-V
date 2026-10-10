@@ -27,6 +27,8 @@ internal sealed class SettingsWindow : Window
     private Grid? _bodyHost;
     private bool _dialogOpen;
     private readonly Action<bool>? _fullscreenHideChanged;
+    private readonly Action<bool>? _outsideCollapseChanged;
+    private Action? _toggleOutside;
     private Action? _toggleFullscreenHide;
     private Action? _toggleStartup;
     private Action? _toggleHud;   // 文件对话框打开期间，不能因为"失去激活"而关掉设置窗口
@@ -39,10 +41,11 @@ internal sealed class SettingsWindow : Window
     };
     private DsSlider? _rowsSlider;
 
-    public SettingsWindow(PanelWindow panel, Action<bool>? fullscreenHideChanged = null)
+    public SettingsWindow(PanelWindow panel, Action<bool>? fullscreenHideChanged = null, Action<bool>? outsideCollapseChanged = null)
     {
         _panel = panel;
         _fullscreenHideChanged = fullscreenHideChanged;
+        _outsideCollapseChanged = outsideCollapseChanged;
 
 
         WindowStyle = WindowStyle.None;
@@ -83,6 +86,9 @@ internal sealed class SettingsWindow : Window
         body.Children.Add(MakeButton("重置所有数据…", ShowResetConfirm));
         body.Children.Add(BuildSwitchRow("全屏时自动隐藏",
             () => SettingsStore.Load().FullscreenHide, ApplyFullscreenHide, out Action toggleFullscreen));
+        body.Children.Add(BuildSwitchRow("点击外部自动收纳（主界面失焦即收回）",
+            () => SettingsStore.Load().CollapseOnOutsideClick, ApplyCollapseOutside, out Action toggleOutside));
+        _toggleOutside = () => toggleOutside();
         body.Children.Add(BuildSwitchRow("显示调试信息（FPS/尺寸）",
             () => SettingsStore.Load().ShowHud, ApplyHud, out Action toggleHud));
         _toggleHud = () => toggleHud();
@@ -93,6 +99,14 @@ internal sealed class SettingsWindow : Window
         body.Children.Add(_status);
         body.Children.Add(Divider());
         body.Children.Add(MakeButton("关闭应用（直接退出）", () => Application.Current.Shutdown(), primary: true));
+        body.Children.Add(new TextBlock
+        {
+            Text = AppVersion.Summary,
+            FontSize = 13,
+            Margin = new Thickness(2, 10, 2, 0),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Foreground = new SolidColorBrush(Color.FromArgb(0x77, 0xFF, 0xFF, 0xFF)),
+        });
 
 
 
@@ -377,6 +391,23 @@ internal sealed class SettingsWindow : Window
         _status.Text = $"显示调试信息 = {enabled}（已即时生效）";
         Log.Info(_status.Text);
     }
+
+    /// <summary>点击外部自动收纳开关：落盘并通知宿主（即时生效）。</summary>
+    private void ApplyCollapseOutside(bool enabled)
+    {
+        SettingsStore settings = SettingsStore.Load();
+        settings.CollapseOnOutsideClick = enabled;
+        settings.Save();
+        _status.Text = $"点击外部自动收纳 = {enabled}（已即时生效）";
+        _outsideCollapseChanged?.Invoke(enabled);
+        Log.Info(_status.Text);
+    }
+
+    /// <summary>自检用：走与点击开关完全相同的路径。</summary>
+    public void ToggleOutsideClickForTest() => _toggleOutside?.Invoke();
+
+    /// <summary>自检用：开关行是否已构建（窗口"失活即自关"后，本字段仍可从窗口对象读取）。</summary>
+    public bool HasOutsideSwitchForTest => _toggleOutside != null;
 
     /// <summary>全屏开关：落盘 + 立即通知宿主（即时生效）。</summary>
     private void ApplyFullscreenHide(bool enabled)

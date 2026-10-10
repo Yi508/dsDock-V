@@ -1,4 +1,4 @@
-﻿# Build dsDock 0.1 (offline: the project has zero third party NuGet dependencies).
+﻿# Build dsDock (offline: the project has zero third party NuGet dependencies).
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File build.ps1

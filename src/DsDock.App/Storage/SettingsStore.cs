@@ -30,6 +30,12 @@ internal sealed class SettingsStore
     /// <summary>全屏应用/游戏运行时自动隐藏侧边栏与主界面（spec）。</summary>
     public bool FullscreenHide { get; set; } = true;
 
+    /// <summary>点击主界面之外（本应用失去焦点）时自动收回侧边栏。默认关。</summary>
+    public bool CollapseOnOutsideClick { get; set; } = false;
+
+    /// <summary>容器列数：2（默认）或 4（右下角按钮展开态）。</summary>
+    public int ContainerColumns { get; set; } = 2;
+
     /// <summary>是否显示调试信息（FPS/像素尺寸）。默认关闭，只在需要排查时打开。</summary>
     public bool ShowHud { get; set; }
     public int PanelLeft { get; set; } = -1;

@@ -1,1 +1,6 @@
-﻿{ "cards": ["clock", "sticky_note"] }
+{
+  "cards": [
+    "clock",
+    "sticky_note"
+  ]
+}

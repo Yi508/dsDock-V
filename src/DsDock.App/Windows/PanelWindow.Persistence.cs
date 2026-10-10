@@ -18,26 +18,25 @@ internal sealed partial class PanelWindow
     /// <summary>把当前容器写进 layout.json（任何增删/移动/改尺寸/改挡位后调用）。</summary>
     public void SaveLayout()
     {
-        if (_hosts.Count == 0 && _loadInProgress) return;
+        if (_placements.Count == 0 && _loadInProgress) return;
 
-        var file = new LayoutFile { Version = 1, PanelRows = _rows };
-        foreach (CardHost host in _hosts)
+        var file = new LayoutFile { Version = 1, PanelRows = _rows, Columns = _columns };
+        foreach (Placement placement in _placements)   // 含"待展开恢复"的无宿主记录
         {
-            Placement? placement = _placements.FirstOrDefault(p => p.InstanceId == host.InstanceId);
-            if (placement == null) continue;
+            (int col, int row) = _homePositions.TryGetValue(placement.InstanceId, out var home) ? home : (placement.Col, placement.Row);
             file.Cards.Add(new CardInstanceRecord
             {
-                InstanceId = host.InstanceId,
-                CardId = CardIdOf(host.InstanceId),
-                Col = placement.Col,
-                Row = placement.Row,
+                InstanceId = placement.InstanceId,
+                CardId = CardIdOf(placement.InstanceId),
+                Col = col,
+                Row = row,
                 Columns = placement.Columns,
                 Rows = placement.Rows,
             });
         }
 
         LayoutStore.Save(file);
-        Log.Info($"布局已保存: 挡位 2×{file.PanelRows}，卡片 {file.Cards.Count} 张");
+        Log.Info($"布局已保存: 挡位 {file.Columns}×{file.PanelRows}，卡片 {file.Cards.Count} 张");
     }
 
     private static string CardIdOf(string instanceId)
@@ -95,25 +94,32 @@ internal sealed partial class PanelWindow
                 _cardSeq = Math.Max(_cardSeq, seq);
         }
 
+        // 收回态启动：按本位建卡后，把扩展列的临时挪进 2 列（放不下的保持隐藏待恢复）
+        if (_columns == 2 && _placements.Any(p => p.Col + p.Columns > _columns))
+        {
+            RelocateExtCards();
+            Log.Info($"收回态启动重排: 可见 {_hosts.Count} 张，待恢复 {PendingCount} 张");
+        }
+
         _loadInProgress = false;
         result += $"；已恢复 {created} 张卡片" + (skipped > 0 ? $"，跳过 {skipped} 张" : "");
+        if (PendingCount > 0) result += $"，{PendingCount} 张待展开恢复";
         return result;   // 调用方（AppShell）负责记录日志，避免重复行
     }
 
     /// <summary>自检用：当前容器的布局快照。</summary>
     public LayoutFile LayoutSnapshotForTest()
     {
-        var file = new LayoutFile { PanelRows = _rows };
-        foreach (CardHost host in _hosts)
+        var file = new LayoutFile { PanelRows = _rows, Columns = _columns };
+        foreach (Placement placement in _placements)   // 含"待展开恢复"的无宿主记录
         {
-            Placement? placement = _placements.FirstOrDefault(p => p.InstanceId == host.InstanceId);
-            if (placement == null) continue;
+            (int col, int row) = _homePositions.TryGetValue(placement.InstanceId, out var home) ? home : (placement.Col, placement.Row);
             file.Cards.Add(new CardInstanceRecord
             {
-                InstanceId = host.InstanceId,
-                CardId = CardIdOf(host.InstanceId),
-                Col = placement.Col,
-                Row = placement.Row,
+                InstanceId = placement.InstanceId,
+                CardId = CardIdOf(placement.InstanceId),
+                Col = col,
+                Row = row,
                 Columns = placement.Columns,
                 Rows = placement.Rows,
             });

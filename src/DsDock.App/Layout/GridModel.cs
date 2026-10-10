@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Windows;
 
@@ -21,7 +21,9 @@ internal sealed class GridModel
         VisibleRows = visibleRows;
     }
 
-    public int Columns { get; }
+    public int Columns { get; private set; }
+
+    public void SetColumns(int value) => Columns = value;
     public int Rows { get; }
     public int VisibleRows { get; set; }
     public double CellSize { get; }

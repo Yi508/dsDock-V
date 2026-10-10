@@ -39,7 +39,7 @@ internal sealed partial class PanelWindow
         CardSize size = requestedSize ?? CardSize.Parse(card.Entry.Manifest!.DefaultSize);
         if (!card.Entry.Manifest!.AllowedSizes.Contains(size.ToString())) size = CardSize.Parse(card.Entry.Manifest.DefaultSize);
 
-        int? neededRows = LayoutEngine.RowsNeededToAdd(_placements, size.Columns, size.Rows, MaxRows);
+        int? neededRows = LayoutEngine.RowsNeededToAdd(_placements, size.Columns, size.Rows, MaxRows, _columns);
         if (neededRows == null)
         {
             Log.Info($"空间不足，无法添加（本屏上限 2×{MaxRows} 仍放不下）");
@@ -48,7 +48,7 @@ internal sealed partial class PanelWindow
         }
         if (neededRows.Value > _rows) ApplyRows(neededRows.Value);
 
-        var slot = LayoutEngine.FindSlot(_placements, size.Columns, size.Rows, _rows);
+        var slot = LayoutEngine.FindSlot(_placements, size.Columns, size.Rows, _rows, gridColumns: _columns);
         if (slot == null)
         {
             Log.Info("空间不足，无法添加（找不到空位）");
@@ -67,7 +67,7 @@ internal sealed partial class PanelWindow
         var placement = new Placement(instanceId, slot.Value.Col, slot.Value.Row, size.Columns, size.Rows);
         _placements.Add(placement);
         AddHost(placement, instance);
-        Log.Info($"已添加卡片 {cardId}（{instanceId}）尺寸 {size} 到格 ({placement.Col},{placement.Row})，挡位 2×{_rows}");
+        Log.Info($"已添加卡片 {cardId}（{instanceId}）尺寸 {size} 到格 ({placement.Col},{placement.Row})，挡位 {_columns}×{_rows}");
         SaveLayout();
         return true;
     }
@@ -147,10 +147,15 @@ internal sealed partial class PanelWindow
             _placements.RemoveAll(p => p.InstanceId == host.InstanceId);
         }
 
-        if (targets.Count > 0)
+        // 连"待展开恢复"（无宿主）的布局记录一起清掉，卸载卡片类型后不留孤儿
+        int orphanRecords = _placements.RemoveAll(p => p.InstanceId.StartsWith(cardId + "-", StringComparison.Ordinal));
+        foreach (string key in _homePositions.Keys.Where(k => k.StartsWith(cardId + "-", StringComparison.Ordinal)).ToList())
+            _homePositions.Remove(key);
+
+        if (targets.Count > 0 || orphanRecords > 0)
         {
             SaveLayout();
-            Log.Info($"已从容器移除 {cardId} 的全部实例: {targets.Count} 张");
+            Log.Info($"已从容器移除 {cardId}: 在容器 {targets.Count} 张，另清理待恢复记录 {orphanRecords} 条");
         }
         return targets.Count;
     }

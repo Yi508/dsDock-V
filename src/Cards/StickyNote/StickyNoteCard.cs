@@ -19,7 +19,7 @@ public sealed class StickyNoteCard : ICard
 {
     // 6 个高饱和、色相区分明显的预设色（不放相近色）：红 橙 绿 青 蓝 紫
     private static readonly string[] Palette = { "#EF4444", "#F97316", "#22C55E", "#06B6D4", "#3B82F6", "#A855F7" };
-    private const int MaxChars = 100;
+    private const int MaxChars = 300;   // 字数上限（原 100，按需求提高）
     private const string EmptyHint = "点击左下角编辑";
 
     private readonly Grid _root;

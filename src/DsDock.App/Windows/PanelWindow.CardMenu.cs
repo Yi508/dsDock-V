@@ -44,13 +44,16 @@ internal sealed partial class PanelWindow
     {
         Placement? placement = _placements.FirstOrDefault(p => p.InstanceId == host.InstanceId);
         if (placement == null) return false;
-        if (!LayoutEngine.CanPlace(_placements, col, row, placement.Columns, placement.Rows, _rows, host.InstanceId))
+        if (!LayoutEngine.CanPlace(_placements, col, row, placement.Columns, placement.Rows, _rows, host.InstanceId, _columns))
         {
             Log.Info($"卡片 {host.InstanceId} 目标格 ({col},{row}) 非法（越界或重叠）→ 回弹");
             return false;
         }
 
+        bool cellChanged = col != placement.Col || row != placement.Row;
         _placements[_placements.IndexOf(placement)] = placement with { Col = col, Row = row };
+        // Q1=B：收回态手动拖动 = 用户表态 → 本位跟随新位置（同格微拖不清本位）
+        if (cellChanged) _homePositions.Remove(host.InstanceId);
         Log.Info($"卡片 {host.InstanceId} 吸附到格 ({col},{row})，容器: {HostSummary}");
         SaveLayout();
         return true;

@@ -1015,6 +1015,365 @@ internal static class SelfTestM2
             $"整张移除 rm_demo：目录已删={dirGone}、registry 已注销={unregistered}、运行时已卸载={runtimeGone}、" +
             $"卡片库条目 {cardsWithDemo} → {lib3.TotalCards}（同步={librarySynced}），列表浮层打开={listOpen}；返回：{uninstallDetail}");
 
+        // 51) 容器 2⇄4 列：宽度变化、原卡格子不动、扩展列按行序搬移、排不下保留位置、再展开精确恢复、移除后不恢复
+        panel.ClearAllForTest();
+        panel.SetColumnsForTest(2);
+        panel.ApplyRows(2);
+        int homeX2 = panel.WorkArea().Left + 120, homeY2 = panel.WorkArea().Top + 90;
+        panel.SetHomePositionForTest(homeX2, homeY2);
+        panel.Expand(DockEdge.Right, default, animate: false);
+        await Task.Delay(250);
+
+        int width2col = (int)panel.WindowWidthDip;
+        (int cellX, int cellY) originBefore = panel.CellOriginOnScreen(0, 0);
+
+        panel.AddCard("clock");        // (0,0)
+        await Task.Delay(150);
+        panel.AddCard("sticky_note");  // (1,0)
+        await Task.Delay(150);
+        panel.AddCard("sticky_note");  // (0,1)
+        await Task.Delay(150);
+        panel.AddCard("sticky_note");  // (1,1)  → 2×2 填满
+        await Task.Delay(350);
+        int hostsFull = panel.HostCount;
+
+        panel.SetColumnsForTest(4);
+        await Task.Delay(400);
+        int width4col = (int)panel.WindowWidthDip;
+        (int x4, int y4) originAfter = panel.CellOriginOnScreen(0, 0);
+        bool widthOk = width4col - width2col == 336 && width2col == 352 + (int)PanelWindow.GutterDip;   // 窗口宽 = 内容 + 外挂槽
+        bool originOk = originBefore == originAfter;   // D1：左缘固定，原卡屏幕位置不变
+
+        panel.AddCard("sticky_note");  // 第 5 张 → 扩展列 (2,0)
+        await Task.Delay(350);
+        string extId = panel.Hosts.Last().InstanceId;
+        Placement? extPlacement = panel.Placements.FirstOrDefault(p => p.InstanceId == extId);
+        bool inExtZone = extPlacement != null && extPlacement.Col >= 2;
+
+        panel.SetColumnsForTest(2);    // 收回：2×2 已满 → 第 5 张排不下
+        await Task.Delay(400);
+        Placement? deferredPlacement = panel.Placements.FirstOrDefault(p => p.InstanceId == extId);
+        int collapsedPending = panel.PendingCount;   // 当刻取值，避免详情串晚求值
+        bool deferredOk = collapsedPending == 1
+            && deferredPlacement != null && deferredPlacement.Col >= 2
+            && panel.Hosts.All(h => h.InstanceId != extId)   // 对容器不可见
+            && panel.Placements.All(p => p.Col + p.Columns <= 4);
+        var snapshotCollapsed = panel.LayoutSnapshotForTest();
+        bool savedOk = snapshotCollapsed.Cards.Any(c => c.InstanceId == extId && c.Col >= 2);
+
+        panel.SetColumnsForTest(4);    // 再展开 → 按原格恢复
+        await Task.Delay(400);
+        Placement? restoredPlacement = panel.Placements.FirstOrDefault(p => p.InstanceId == extId);
+        bool extRestoredOk = panel.PendingCount == 0 && restoredPlacement is { Col: 2, Row: 0 }
+            && panel.Hosts.Any(h => h.InstanceId == extId);
+
+        // 需求第 3 条：恢复出来的卡在展开态被移除 → 记录删除 → 再收回展开都不恢复
+        panel.RemoveCardInstance(extId);
+        await Task.Delay(250);
+        panel.SetColumnsForTest(2);
+        await Task.Delay(300);
+        panel.SetColumnsForTest(4);
+        await Task.Delay(300);
+        bool removedNoRestore = !panel.Placements.Any(p => p.InstanceId == extId)
+            && !panel.Hosts.Any(h => h.InstanceId == extId);
+
+        int hostsNow = panel.HostCount;
+        Add(r, "容器 2⇄4 列：宽度切换、原卡不动、扩展列行序搬移/排不下保留/精确恢复、移除后不恢复",
+            widthOk && originOk && inExtZone && deferredOk && savedOk && extRestoredOk && removedNoRestore && hostsNow == hostsFull,
+            $"宽 {width2col}→{width4col}（内容 352/688 + 槽 {PanelWindow.GutterDip}）；原卡屏幕格 {originBefore}→{originAfter}（不变={originOk}）；" +
+            $"第5张入扩展列 Col={extPlacement?.Col}；收回当刻: 待恢复={collapsedPending}、记录保留={savedOk}；之后移除前宿主 {hostsNow} 张；" +
+            $"再展开恢复到 ({restoredPlacement?.Col},{restoredPlacement?.Row})={extRestoredOk}；移除后再展开不恢复={removedNoRestore}");
+
+        // 52) 启动恢复守卫 + 老格式兼容 + ContainerColumns 落盘
+        panel.ClearAllForTest();
+        panel.SetColumnsForTest(2);   // 51 收尾在 4 列：守卫语义必须在 2 列（收回态）下验证
+        await Task.Delay(350);
+        LayoutStore.Save(new LayoutFile
+        {
+            PanelRows = 2,
+            Columns = 2,
+            Cards = { new CardInstanceRecord { InstanceId = "ghost-9", CardId = "clock", Col = 2, Row = 0, Columns = 1, Rows = 1 } },
+        });
+        string restoreResult = panel.RestoreFromLayout();
+        var ghostNow = panel.Placements.FirstOrDefault(p => p.InstanceId == "ghost-9");
+        var ghostSnap = panel.LayoutSnapshotForTest().Cards.FirstOrDefault(c => c.InstanceId == "ghost-9");
+        bool relocatedVisible = panel.HostCount == 1 && ghostNow is { Col: 0, Row: 0 };   // 空容器 → 临时挪进 (0,0)（CardCount 是 M1 遗留占位计数）
+        bool homeKept = ghostSnap is { Col: 2, Row: 0 };                                   // 记录仍是本位 (2,0)
+        panel.SetColumnsForTest(4);
+        await Task.Delay(400);
+        var ghostBack = panel.Placements.FirstOrDefault(p => p.InstanceId == "ghost-9");
+        bool ghostReturned = ghostBack is { Col: 2, Row: 0 } && panel.Hosts.Any(h => h.InstanceId == "ghost-9");
+        panel.ClearAllForTest();
+        LayoutStore.Save(new LayoutFile { PanelRows = 2, Columns = 2 });
+
+        var legacyLayout = System.Text.Json.JsonSerializer.Deserialize<LayoutFile>("{\"PanelRows\":3,\"Cards\":[]}");
+        bool legacyOk = legacyLayout != null && legacyLayout.Columns == 2;
+
+        int savedColumns = SettingsStore.Load().ContainerColumns;
+        bool columnsPersistOk = savedColumns == panel.ActiveColumns;
+
+        Add(r, "收回态启动恢复：扩展列记录建卡并临时挪进 2 列、记录保持本位、展开回本位；老格式缺 Columns 默认 2、ContainerColumns 落盘",
+            relocatedVisible && homeKept && ghostReturned && legacyOk && columnsPersistOk,
+            $"恢复结果=\"{restoreResult}\"；临时位={(ghostNow == null ? "?" : $"({ghostNow.Col},{ghostNow.Row})")}、" +
+            $"记录本位={(ghostSnap == null ? "?" : $"({ghostSnap.Col},{ghostSnap.Row})")}、展开后={(ghostBack == null ? "?" : $"({ghostBack.Col},{ghostBack.Row})")}；" +
+            $"老格式 Columns={legacyLayout?.Columns}；settings.ContainerColumns={savedColumns} vs 当前列数={panel.ActiveColumns}");
+
+        // 53) 右下角切换按钮 + UI 随列数平移（顶栏按钮贴新右缘、收回后回到原位）+ 锁定时隐藏（D4）
+        panel.ClearAllForTest();
+        panel.SetColumnsForTest(2);
+        int uiHomeX = panel.WorkArea().Left + 150, uiHomeY = panel.WorkArea().Top + 100;
+        panel.SetHomePositionForTest(uiHomeX, uiHomeY);
+        panel.Expand(DockEdge.Right, default, animate: false);
+        await Task.Delay(300);
+
+        var topBtn2 = panel.TopButtonRectForTest();
+        string label2 = panel.ColumnsButtonTextForTest;
+
+        panel.SetColumnsForTest(4);
+        await Task.Delay(400);
+        var topBtn4 = panel.TopButtonRectForTest();
+        var arrow4 = panel.ColumnsButtonRectForTest();
+        var win4 = panel.PanelRect();
+        string label4 = panel.ColumnsButtonTextForTest;
+        int gap = win4.Right - topBtn4.Right;
+        int gutterPx = (int)Math.Round(PanelWindow.GutterDip * panel.DpiScale);
+        // 顶栏按钮在框内：距窗口右缘 = 槽宽 + 右外边距；箭头按钮必须落在框外的槽内
+        bool tracked = gap >= gutterPx && gap <= gutterPx + (int)Math.Ceiling(6 * panel.DpiScale) + 4;
+        int frameToArrow = arrow4.Left - (win4.Right - gutterPx);
+        bool arrowOutsideFrame = frameToArrow >= 1 && frameToArrow <= 10;
+
+        panel.SetColumnsForTest(2);
+        await Task.Delay(400);
+        var topBtnBack = panel.TopButtonRectForTest();
+        bool returned = topBtnBack == topBtn2;
+        bool labelsOk = label2 == "→" && label4 == "←";
+
+        panel.SetLocked(true);
+        await Task.Delay(200);
+        bool hiddenLocked = !panel.ColumnsButtonVisibleForTest;
+        panel.SetLocked(false);
+        await Task.Delay(200);
+        bool shownBack = panel.ColumnsButtonVisibleForTest;
+
+        Add(r, "框外箭头切换按钮：文案随列数、顶栏 UI 平移到新右缘、箭头在圆角框外槽内、锁定时隐藏（D4）",
+            tracked && arrowOutsideFrame && returned && labelsOk && hiddenLocked && shownBack,
+            $"文案 {label2}→{label4}（应 →→←）；顶栏按钮距窗口右缘 {gap}px（槽 {gutterPx}px+边距 6）；箭头距框缘 {frameToArrow}px（框外槽内={arrowOutsideFrame}）；" +
+            $"收回后按钮矩形还原={returned}；锁定隐藏={hiddenLocked}、解锁恢复={shownBack}");
+
+        // 54) 4 列下：可吸附到 col3、col4 越界被拒、行数照常调节且与列数互不影响、收回后全部回到 2 列内
+        panel.ClearAllForTest();
+        panel.SetColumnsForTest(4);
+        await Task.Delay(350);
+        panel.ApplyRows(3);
+        int uiHomeX3 = panel.WorkArea().Left + 150, uiHomeY3 = panel.WorkArea().Top + 100;
+        panel.SetHomePositionForTest(uiHomeX3, uiHomeY3);
+        panel.Expand(DockEdge.Right, default, animate: false);
+        await Task.Delay(250);
+        panel.AddCard("clock");
+        await Task.Delay(300);
+
+        CardHost host4 = panel.Hosts.First();
+        bool movedCol3 = panel.TryMoveCardTo(host4, 3, 1);
+        bool rejectCol4 = !panel.TryMoveCardTo(host4, 4, 0);
+
+        double h3 = panel.WindowHeightDip;
+        panel.ApplyRows(4);
+        await Task.Delay(250);
+        double h4 = panel.WindowHeightDip;
+        int rowsAt4 = panel.Rows, colsAt4 = panel.ActiveColumns;
+        bool rowsOk = rowsAt4 == 4 && colsAt4 == 4 && h4 > h3;
+
+        panel.SetColumnsForTest(2);
+        await Task.Delay(400);
+        int rowsAtCollapse = panel.Rows, colsAtCollapse = panel.ActiveColumns;
+        int hostsAtCollapse = panel.HostCount;
+        bool allIn2 = panel.Placements.All(p => p.Col + p.Columns <= 2);
+
+        Add(r, "4 列下的拖动吸附与行数约束：col3 可吸附、col4 拒绝、行数调节不影响列数、收回全部回到 2 列内",
+            movedCol3 && rejectCol4 && rowsOk && rowsAtCollapse == 4 && colsAtCollapse == 2 && hostsAtCollapse == 1 && allIn2,
+            $"吸附 (3,1)={movedCol3}、(4,0) 越界拒绝={rejectCol4}；行数 3→4: 高 {h3:F0}→{h4:F0} DIP、列数保持={rowsOk}；" +
+            $"收回后 行={rowsAtCollapse} 列={colsAtCollapse} 卡片={hostsAtCollapse} 张、全部格子∈2列={allIn2}");
+
+        // 55) 收回放得下的扩展列卡片：临时显示进 2 列、layout 记本位、展开回本位；同格微拖保留本位；异格拖动本位跟随（Q1=B）
+        panel.ClearAllForTest();
+        panel.SetColumnsForTest(2);
+        panel.ApplyRows(2);
+        panel.Expand(DockEdge.Right, default, animate: false);
+        await Task.Delay(250);
+        panel.AddCard("clock");
+        await Task.Delay(300);
+        panel.AddCard("sticky_note");
+        await Task.Delay(300);
+        panel.SetColumnsForTest(4);
+        await Task.Delay(350);
+        CardHost stickyHost = panel.Hosts.First(h => !h.InstanceId.StartsWith("clock-"));
+        bool movedToExt = panel.TryMoveCardTo(stickyHost, 2, 0);
+        await Task.Delay(200);
+
+        panel.SetColumnsForTest(2);
+        await Task.Delay(400);
+        var tempPos = panel.Placements.FirstOrDefault(p => p.InstanceId == stickyHost.InstanceId);
+        var snapCollapsed = panel.LayoutSnapshotForTest().Cards.FirstOrDefault(c => c.InstanceId == stickyHost.InstanceId);
+        bool tempVisible = panel.Hosts.Any(h => h.InstanceId == stickyHost.InstanceId) && tempPos is { Col: 1, Row: 0 };
+        bool recordIsHome = snapCollapsed is { Col: 2, Row: 0 };
+
+        panel.SetColumnsForTest(4);
+        await Task.Delay(400);
+        var backHome = panel.Placements.FirstOrDefault(p => p.InstanceId == stickyHost.InstanceId);
+        bool returnedHome = backHome is { Col: 2, Row: 0 };
+
+        panel.SetColumnsForTest(2);
+        await Task.Delay(350);
+        var temp2 = panel.Placements.FirstOrDefault(p => p.InstanceId == stickyHost.InstanceId);
+        bool microDragKept = temp2 != null && panel.TryMoveCardTo(stickyHost, temp2.Col, temp2.Row);
+        panel.SetColumnsForTest(4);
+        await Task.Delay(350);
+        var afterMicro = panel.Placements.FirstOrDefault(p => p.InstanceId == stickyHost.InstanceId);
+        bool microHomeIntact = afterMicro is { Col: 2, Row: 0 };
+
+        panel.SetColumnsForTest(2);
+        await Task.Delay(350);
+        bool manualMove = panel.TryMoveCardTo(stickyHost, 0, 1);
+        await Task.Delay(200);
+        panel.SetColumnsForTest(4);
+        await Task.Delay(400);
+        var afterManual = panel.Placements.FirstOrDefault(p => p.InstanceId == stickyHost.InstanceId);
+        bool homeFollowed = afterManual is { Col: 0, Row: 1 };
+
+        Add(r, "收回放得下的扩展列卡片：临时显示进 2 列、记录保持本位、展开回本位；同格微拖保留本位；异格拖动本位跟随（Q1=B）",
+            movedToExt && tempVisible && recordIsHome && returnedHome && microDragKept && microHomeIntact && manualMove && homeFollowed,
+            $"拖入扩展列={(movedToExt)}；收回: 临时位={(tempPos == null ? "?" : $"({tempPos.Col},{tempPos.Row})")}、记录本位={(snapCollapsed == null ? "?" : $"({snapCollapsed.Col},{snapCollapsed.Row})")}；" +
+            $"展开回本位={(backHome == null ? "?" : $"({backHome.Col},{backHome.Row})")}={returnedHome}；同格微拖保留={microHomeIntact}；" +
+            $"异格(0,1)拖动后展开停在 {(afterManual == null ? "?" : $"({afterManual.Col},{afterManual.Row})")}={homeFollowed}");
+
+        // 56) "点击外部自动收纳"开关：存在、即时生效、失焦事件真收纳、关掉不收纳 + 便利贴上限 300
+        // 自愈：真机上用户的真实点击/切换可能触发本功能的收纳（它监听的就是真实输入）→
+        // "期望展开"的断言前先确保展开，避免外部事件把断言带偏
+        async Task EnsurePanelExpanded()
+        {
+            if (!panel.IsExpanded)
+            {
+                panel.Expand(DockEdge.Right, default, animate: false);
+                await Task.Delay(350);
+            }
+        }
+        panel.ClearAllForTest();
+        panel.ApplyRows(2);
+        panel.SetColumnsForTest(2);
+        panel.Expand(DockEdge.Right, default, animate: false);
+        await Task.Delay(300);
+
+        shell.OpenSettingsForTest();
+        await Task.Delay(450);
+        SettingsWindow? win56 = shell.SettingsWindowForTest;
+        bool switchExists = win56?.HasOutsideSwitchForTest == true;
+        win56?.Close();   // 立即关闭：设置窗口"失活即自关"，不依赖窗口存活
+
+        shell.SetCollapseOutsideForTest(true);   // 与 UI 开关完全相同的回调路径（更新现场值 + 落盘）
+        await Task.Delay(300);
+        bool onHot = SettingsStore.Load().CollapseOnOutsideClick;
+        shell.TryAutoCollapseAtForTest("自检：失焦（点在窗口外）", 5, 5);   // 注入坐标判定，不依赖真实光标
+        await Task.Delay(700);
+        bool panelCollapsed = !panel.IsExpanded;
+
+        shell.SetCollapseOutsideForTest(false);        // 关
+        await Task.Delay(300);
+        bool offHot = !SettingsStore.Load().CollapseOnOutsideClick;
+        panel.Expand(DockEdge.Right, default, animate: false);
+        await Task.Delay(350);
+        shell.TryAutoCollapseAtForTest("自检：失焦（开关已关）", 5, 5);
+        await Task.Delay(600);
+        bool stayedExpanded = panel.IsExpanded;
+
+        // 便利贴字数上限 300（编辑弹窗文本框的 MaxLength）
+        panel.AddCard("sticky_note");
+        await Task.Delay(400);
+        CardHost noteHost4 = panel.Hosts.First(h => h.InstanceId.StartsWith("sticky_note-"));
+        noteHost4.Card.GetMenuItems().First(m => m.Label == "编辑").Invoke!.Invoke();
+        await Task.Delay(550);
+        TextBox? limitBox = null;
+        if (panel.LastPopup != null)
+        {
+            var q10 = new Queue<DependencyObject>();
+            q10.Enqueue(panel.LastPopup);
+            while (q10.Count > 0 && limitBox == null)
+            {
+                DependencyObject node = q10.Dequeue();
+                if (node is TextBox box10) { limitBox = box10; break; }
+                int cc = VisualTreeHelper.GetChildrenCount(node);
+                for (int i = 0; i < cc; i++) q10.Enqueue(VisualTreeHelper.GetChild(node, i));
+            }
+        }
+        bool limitOk = limitBox != null && limitBox.MaxLength == 300;
+        panel.LastPopup?.Close();
+
+        Add(r, "设置：点击外部自动收纳（开关存在/即时生效/失焦真收纳/关闭不收纳）+ 便利贴字数上限 300",
+            switchExists && onHot && panelCollapsed && offHot && stayedExpanded && limitOk,
+            $"开关存在={switchExists}；开→设置={onHot}、失焦后已收纳={panelCollapsed}；关→设置={offHot}、再次失焦保持展开={stayedExpanded}；" +
+            $"便利贴编辑框 MaxLength={(limitBox == null ? "未找到" : limitBox.MaxLength.ToString())}（应 300）");
+
+        // 57) 点击外部收纳（无需先聚焦）：钩子已安装、点自己忽略、点桌面真收纳
+        shell.SetCollapseOutsideForTest(true);   // 56 收尾是关 → 这里打开
+        await Task.Delay(300);
+        OutsideClickWatcher? hook = shell.OutsideClickWatcherForTest;
+        bool hookInstalled = hook is { Installed: true };
+        bool panelIsOurs = hook != null && !OutsideClickWatcher.IsForeignWindow(panel.Handle);
+        IntPtr desktopHwnd = OutsideClickWatcher.GetDesktopWindow();
+        bool desktopIsForeign = OutsideClickWatcher.IsForeignWindow(desktopHwnd);
+
+        await EnsurePanelExpanded();
+        var pr57 = panel.PanelRect();
+        hook?.ProcessPoint(pr57.Left + 5, pr57.Top + 5);   // 点主界面自己（窗内任意点）→ 不该收
+        await Task.Delay(500);
+        bool ignoreSelf = panel.IsExpanded;
+
+        hook?.ProcessPoint(5, 5);                          // 屏幕角落（不在任何己方窗口内）→ 应收
+        await Task.Delay(800);
+        bool collapseOnOutside = !panel.IsExpanded;
+
+        Add(r, "点击外部收纳（无需先聚焦）：WH_MOUSE_LL 钩子已安装、点自己忽略、点桌面真收纳",
+            hookInstalled && panelIsOurs && desktopIsForeign && ignoreSelf && collapseOnOutside,
+            $"钩子安装={hookInstalled}{(hook?.InstallError != null ? $"（{hook.InstallError}）" : "")}；" +
+            $"面板属本进程={panelIsOurs}（点它忽略）、桌面属外部进程={desktopIsForeign}；" +
+            $"点自己后仍展开={ignoreSelf}、点桌面后收纳={collapseOnOutside}");
+
+        // 58) 回归：开启开关后，点击主界面窗口内任意点（含透明边槽/圆角像素）都不收纳；点外部仍收纳
+        shell.SetCollapseOutsideForTest(true);
+        panel.Expand(DockEdge.Right, default, animate: false);
+        await Task.Delay(400);
+
+        NativeMethods.RECT pr = panel.PanelRect();
+        OutsideClickWatcher? hook2 = shell.OutsideClickWatcherForTest;
+
+        await EnsurePanelExpanded();
+        hook2?.ProcessPoint(pr.Left + pr.Width / 2, pr.Top + pr.Height / 2);   // 面板中心
+        await Task.Delay(500);
+        bool midIgnored = panel.IsExpanded;
+
+        await EnsurePanelExpanded();
+        hook2?.ProcessPoint(pr.Right - 2, pr.Bottom - 2);                      // 右下角落：槽内透明像素（本次 bug 现场）
+        await Task.Delay(500);
+        bool edgeIgnored = panel.IsExpanded;
+
+        await EnsurePanelExpanded();
+        hook2?.ProcessPoint(pr.Left + 3, pr.Top + 3);                          // 圆角裁切像素处
+        await Task.Delay(500);
+        bool cornerIgnored = panel.IsExpanded;
+
+        await EnsurePanelExpanded();
+        shell.TryAutoCollapseAtForTest("自检：失焦点在面板内", pr.Left + 10, pr.Top + 10);   // 注入坐标：归属保护与真实光标无关
+        await Task.Delay(500);
+        bool deactivatedIgnored = panel.IsExpanded;
+
+        hook2?.ProcessPoint(6, 6);                                             // 桌面（外部进程）
+        await Task.Delay(800);
+        bool outsideStillCollapses = !panel.IsExpanded;
+
+        Add(r, "回归：点主界面内部（中心/边槽透明区/圆角）与光标在己方窗口时的失焦都不收纳，点外部仍收纳",
+            midIgnored && edgeIgnored && cornerIgnored && deactivatedIgnored && outsideStillCollapses,
+            $"面板中心={midIgnored}、右下槽区={edgeIgnored}、圆角区={cornerIgnored}、光标在己方时失焦={deactivatedIgnored}、" +
+            $"点桌面收纳={outsideStillCollapses}（面板矩形 {pr}）");
+
         static string DateTextOf(CardHost? cardHost)
         {
             if (cardHost == null) return "";
